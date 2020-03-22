@@ -18,8 +18,12 @@ package im.vector.listeners;
 
 import android.net.Uri;
 
+import androidx.annotation.Nullable;
+
 import org.matrix.androidsdk.crypto.data.MXDeviceInfo;
 import org.matrix.androidsdk.rest.model.Event;
+
+import java.util.List;
 
 /**
  * Actions listeners
@@ -93,6 +97,14 @@ public interface IMessagesAdapterActionsListener {
     void onMoreReadReceiptClick(String eventId);
 
     /**
+     * Define the action to perform when the group flairs is clicked.
+     *
+     * @param userId   the user id
+     * @param groupIds the group ids list
+     */
+    void onGroupFlairClick(String userId, List<String> groupIds);
+
+    /**
      * An url has been clicked in a message text.
      *
      * @param uri the uri.
@@ -129,11 +141,18 @@ public interface IMessagesAdapterActionsListener {
     void onRoomIdClick(String roomId);
 
     /**
-     * A message id has been clicked in a message body.
+     * A event id has been clicked in a message body.
      *
-     * @param messageId the message id.
+     * @param eventId the event id.
      */
-    void onMessageIdClick(String messageId);
+    void onEventIdClick(String eventId);
+
+    /**
+     * A group id has been clicked in a message body.
+     *
+     * @param groupId the group id.
+     */
+    void onGroupIdClick(String groupId);
 
     /**
      * The required indexes are not anymore valid.
@@ -141,7 +160,7 @@ public interface IMessagesAdapterActionsListener {
     void onInvalidIndexes();
 
     /**
-     * An action has been  triggered on an event.
+     * An action has been triggered on an event.
      *
      * @param event   the event.
      * @param textMsg the text message
@@ -153,7 +172,27 @@ public interface IMessagesAdapterActionsListener {
      * the user taps on the e2e icon
      *
      * @param event      the event
-     * @param deviceInfo the deviceinfo
+     * @param deviceInfo the device info
      */
     void onE2eIconClick(final Event event, final MXDeviceInfo deviceInfo);
+
+    /**
+     * The event for which the user asked again for the key is now decrypted
+     */
+    void onEventDecrypted();
+
+    /**
+     * Called when selected event change
+     *
+     * @param currentSelectedEvent the current selected event, or null if no event is selected
+     */
+    void onSelectedEventChange(@Nullable Event currentSelectedEvent);
+
+    /**
+     * Called when the tombstone link is clicked
+     *
+     * @param roomId
+     * @param senderId
+     */
+    void onTombstoneLinkClicked(String roomId, String senderId);
 }

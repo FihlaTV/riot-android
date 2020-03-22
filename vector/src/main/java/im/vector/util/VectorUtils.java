@@ -1,7 +1,8 @@
 /*
  * Copyright 2016 OpenMarket Ltd
  * Copyright 2017 Vector Creations Ltd
- * 
+ * Copyright 2018 New Vector Ltd
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
@@ -17,12 +18,8 @@
 package im.vector.util;
 
 import android.annotation.SuppressLint;
-import android.app.Activity;
-import android.app.AlertDialog;
 import android.content.ClipData;
-import android.content.ClipboardManager;
 import android.content.Context;
-import android.content.DialogInterface;
 import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
@@ -35,97 +32,55 @@ import android.os.Build;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.Looper;
-import android.support.v4.util.LruCache;
 import android.text.TextUtils;
-import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewParent;
 import android.webkit.WebView;
-import android.webkit.WebViewClient;
 import android.widget.BaseExpandableListAdapter;
 import android.widget.ExpandableListView;
 import android.widget.ImageView;
-import android.widget.Toast;
+
+import androidx.annotation.Nullable;
+import androidx.appcompat.app.AlertDialog;
+import androidx.collection.LruCache;
+import androidx.core.content.ContextCompat;
 
 import org.matrix.androidsdk.MXSession;
 import org.matrix.androidsdk.call.MXCallsManager;
+import org.matrix.androidsdk.core.ImageUtils;
+import org.matrix.androidsdk.core.Log;
+import org.matrix.androidsdk.core.ResourceUtils;
+import org.matrix.androidsdk.core.callback.ApiCallback;
+import org.matrix.androidsdk.core.callback.SimpleApiCallback;
+import org.matrix.androidsdk.core.model.MatrixError;
 import org.matrix.androidsdk.data.Room;
-import org.matrix.androidsdk.data.RoomState;
-import org.matrix.androidsdk.db.MXMediasCache;
-import org.matrix.androidsdk.rest.callback.ApiCallback;
-import org.matrix.androidsdk.rest.callback.SimpleApiCallback;
-import org.matrix.androidsdk.rest.model.MatrixError;
-import org.matrix.androidsdk.rest.model.PublicRoom;
+import org.matrix.androidsdk.data.RoomPreviewData;
+import org.matrix.androidsdk.db.MXMediaCache;
 import org.matrix.androidsdk.rest.model.RoomMember;
 import org.matrix.androidsdk.rest.model.User;
-import org.matrix.androidsdk.util.ImageUtils;
-import org.matrix.androidsdk.util.Log;
+import org.matrix.androidsdk.rest.model.group.Group;
+import org.matrix.androidsdk.rest.model.publicroom.PublicRoom;
 
 import java.io.InputStream;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collection;
-import java.util.Collections;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import im.vector.Matrix;
 import im.vector.R;
 import im.vector.VectorApp;
 import im.vector.adapters.ParticipantAdapterItem;
+import im.vector.settings.VectorLocale;
 
 public class VectorUtils {
 
-    private static final String LOG_TAG = "VectorUtils";
+    private static final String LOG_TAG = VectorUtils.class.getSimpleName();
 
     //public static final int REQUEST_FILES = 0;
     public static final int TAKE_IMAGE = 1;
-
-    //==============================================================================================================
-    // permalink methods
-    //==============================================================================================================
-
-    /**
-     * Provides a permalink for a room id and an eventId.
-     * The eventId is optional.
-     *
-     * @param roomIdOrAlias the room id or alias.
-     * @param eventId       the event id (optional)
-     * @return the permalink
-     */
-    public static String getPermalink(String roomIdOrAlias, String eventId) {
-        if (TextUtils.isEmpty(roomIdOrAlias)) {
-            return null;
-        }
-
-        String link = "https://matrix.to/#/" + roomIdOrAlias;
-
-        if (!TextUtils.isEmpty(eventId)) {
-            link += "/" + eventId;
-        }
-
-        // the $ character is not as a part of an url so escape it.
-        return link.replace("$", "%24");
-    }
-
-    //==============================================================================================================
-    // Clipboard helper
-    //==============================================================================================================
-
-    /**
-     * Copy a text to the clipboard.
-     *
-     * @param context the context
-     * @param text    the text to copy
-     */
-    public static void copyToClipboard(Context context, CharSequence text) {
-        ClipboardManager clipboard = (ClipboardManager) context.getSystemService(Context.CLIPBOARD_SERVICE);
-        clipboard.setPrimaryClip(ClipData.newPlainText("", text));
-        Toast.makeText(context, context.getString(R.string.copied_to_clipboard), Toast.LENGTH_SHORT).show();
-    }
 
     //==============================================================================================================
     // Rooms methods
@@ -141,13 +96,13 @@ public class VectorUtils {
         String displayName = publicRoom.name;
 
         if (TextUtils.isEmpty(displayName)) {
-            if (publicRoom.getAliases().size() > 0) {
-                displayName = publicRoom.getAliases().get(0);
+            if (publicRoom.aliases != null && !publicRoom.aliases.isEmpty()) {
+                displayName = publicRoom.aliases.get(0);
             } else {
                 displayName = publicRoom.roomId;
             }
-        } else if (!displayName.startsWith("#") && (0 < publicRoom.getAliases().size())) {
-            displayName = displayName + " (" + publicRoom.getAliases().get(0) + ")";
+        } else if (!displayName.startsWith("#") && publicRoom.aliases != null && !publicRoom.aliases.isEmpty()) {
+            displayName = displayName + " (" + publicRoom.aliases.get(0) + ")";
         }
 
         return displayName;
@@ -161,118 +116,27 @@ public class VectorUtils {
      * @param room    the room.
      * @return the calling room display name.
      */
-    public static String getCallingRoomDisplayName(Context context, MXSession session, Room room) {
+    @Nullable
+    public static void getCallingRoomDisplayName(Context context,
+                                                 final MXSession session,
+                                                 final Room room,
+                                                 final ApiCallback<String> callback) {
         if ((null == context) || (null == session) || (null == room)) {
-            return null;
-        }
-
-        Collection<RoomMember> roomMembers = room.getJoinedMembers();
-
-        if (2 == roomMembers.size()) {
-            ArrayList<RoomMember> roomMembersList = new ArrayList<>(roomMembers);
-
-            if (TextUtils.equals(roomMembersList.get(0).getUserId(), session.getMyUserId())) {
-                return room.getLiveState().getMemberName(roomMembersList.get(1).getUserId());
-            } else {
-                return room.getLiveState().getMemberName(roomMembersList.get(0).getUserId());
-            }
-        } else {
-            return getRoomDisplayName(context, session, room);
-        }
-    }
-
-    /**
-     * Vector client formats the room display with a different manner than the SDK one.
-     *
-     * @param context the application context.
-     * @param session the room session.
-     * @param room    the room.
-     * @return the room display name.
-     */
-    public static String getRoomDisplayName(Context context, MXSession session, Room room) {
-        // sanity checks
-        if (null == room) {
-            return null;
-        }
-
-        // this algorithm is the one defined in
-        // https://github.com/matrix-org/matrix-js-sdk/blob/develop/lib/models/room.js#L617
-        // calculateRoomName(room, userId)
-
-        RoomState roomState = room.getLiveState();
-
-        if (!TextUtils.isEmpty(roomState.name)) {
-            return roomState.name;
-        }
-
-        String alias = roomState.alias;
-
-        if (TextUtils.isEmpty(alias) && (roomState.getAliases().size() > 0)) {
-            alias = roomState.getAliases().get(0);
-        }
-
-        if (!TextUtils.isEmpty(alias)) {
-            return alias;
-        }
-
-        String myUserId = session.getMyUserId();
-
-        Collection<RoomMember> members = roomState.getDisplayableMembers();
-        ArrayList<RoomMember> othersActiveMembers = new ArrayList<>();
-        ArrayList<RoomMember> activeMembers = new ArrayList<>();
-
-        for (RoomMember member : members) {
-            if (!TextUtils.equals(member.membership, RoomMember.MEMBERSHIP_LEAVE)) {
-                if (!TextUtils.equals(member.getUserId(), myUserId)) {
-                    othersActiveMembers.add(member);
-                }
-                activeMembers.add(member);
-            }
-        }
-
-        Collections.sort(othersActiveMembers, new Comparator<RoomMember>() {
-            @Override
-            public int compare(RoomMember m1, RoomMember m2) {
-                long diff = m1.getOriginServerTs() - m2.getOriginServerTs();
-
-                return (diff == 0) ? 0 : ((diff < 0) ? -1 : +1);
-            }
-        });
-
-        String displayName;
-
-        if (othersActiveMembers.size() == 0) {
-            if (activeMembers.size() == 1) {
-                RoomMember member = activeMembers.get(0);
-
-                if (TextUtils.equals(member.membership, RoomMember.MEMBERSHIP_INVITE)) {
-
-                    if (!TextUtils.isEmpty(member.getInviterId())) {
-                        // extract who invited us to the room
-                        displayName = context.getString(R.string.room_displayname_invite_from, roomState.getMemberName(member.getInviterId()));
+            callback.onSuccess(null);
+        } else if (room.getNumberOfJoinedMembers() == 2) {
+            room.getJoinedMembersAsync(new SimpleApiCallback<List<RoomMember>>(callback) {
+                @Override
+                public void onSuccess(List<RoomMember> members) {
+                    if (TextUtils.equals(members.get(0).getUserId(), session.getMyUserId())) {
+                        callback.onSuccess(room.getState().getMemberName(members.get(1).getUserId()));
                     } else {
-                        displayName = context.getString(R.string.room_displayname_room_invite);
+                        callback.onSuccess(room.getState().getMemberName(members.get(0).getUserId()));
                     }
-                } else {
-                    displayName = context.getString(R.string.room_displayname_no_title);
                 }
-            } else {
-                displayName = context.getString(R.string.room_displayname_no_title);
-            }
-        } else if (othersActiveMembers.size() == 1) {
-            RoomMember member = othersActiveMembers.get(0);
-            displayName = roomState.getMemberName(member.getUserId());
-        } else if (othersActiveMembers.size() == 2) {
-            RoomMember member1 = othersActiveMembers.get(0);
-            RoomMember member2 = othersActiveMembers.get(1);
-
-            displayName = context.getString(R.string.room_displayname_two_members, roomState.getMemberName(member1.getUserId()), roomState.getMemberName(member2.getUserId()));
+            });
         } else {
-            RoomMember member = othersActiveMembers.get(0);
-            displayName = context.getString(R.string.room_displayname_more_than_two_members, roomState.getMemberName(member.getUserId()), othersActiveMembers.size() - 1);
+            callback.onSuccess(room.getRoomDisplayName(context));
         }
-
-        return displayName;
     }
 
     //==============================================================================================================
@@ -282,7 +146,14 @@ public class VectorUtils {
     // avatars cache
     static final private LruCache<String, Bitmap> mAvatarImageByKeyDict = new LruCache<>(20 * 1024 * 1024);
     // the avatars background color
-    static final private ArrayList<Integer> mColorList = new ArrayList<>(Arrays.asList(0xff76cfa6, 0xff50e2c2, 0xfff4c371));
+    static final private List<Integer> mColorList = new ArrayList<>();
+
+    public static void initAvatarColors(Context context) {
+        mColorList.clear();
+        mColorList.add(ContextCompat.getColor(context, R.color.avatar_color_1));
+        mColorList.add(ContextCompat.getColor(context, R.color.avatar_color_2));
+        mColorList.add(ContextCompat.getColor(context, R.color.avatar_color_3));
+    }
 
     /**
      * Provides the avatar background color from a text.
@@ -329,7 +200,7 @@ public class VectorUtils {
      * @return the generated bitmap
      */
     private static Bitmap createAvatar(int backgroundColor, String text, int pixelsSide) {
-        android.graphics.Bitmap.Config bitmapConfig = android.graphics.Bitmap.Config.ARGB_8888;
+        Bitmap.Config bitmapConfig = Bitmap.Config.ARGB_8888;
 
         Bitmap bitmap = Bitmap.createBitmap(pixelsSide, pixelsSide, bitmapConfig);
         Canvas canvas = new Canvas(bitmap);
@@ -340,6 +211,7 @@ public class VectorUtils {
         Paint textPaint = new Paint();
         textPaint.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.BOLD));
         textPaint.setColor(Color.WHITE);
+        textPaint.setTextAlign(Paint.Align.CENTER);
         // the text size is proportional to the avatar size.
         // by default, the avatar size is 42dp, the text size is 28 dp (not sp because it has to be fixed).
         textPaint.setTextSize(pixelsSide * 2 / 3);
@@ -349,7 +221,10 @@ public class VectorUtils {
         textPaint.getTextBounds(text, 0, text.length(), textBounds);
 
         // draw the text in center
-        canvas.drawText(text, (canvas.getWidth() - textBounds.width() - textBounds.left) / 2, (canvas.getHeight() + textBounds.height() - textBounds.bottom) / 2, textPaint);
+        canvas.drawText(text,
+                canvas.getWidth() / 2,
+                (canvas.getHeight() - textBounds.top) / 2,
+                textPaint);
 
         // Return the avatar
         return bitmap;
@@ -368,7 +243,7 @@ public class VectorUtils {
             int idx = 0;
             char initial = name.charAt(idx);
 
-            if ((initial == '@' || initial == '#') && (name.length() > 1)) {
+            if ((initial == '@' || initial == '#' || initial == '+') && (name.length() > 1)) {
                 idx++;
             }
 
@@ -384,9 +259,9 @@ public class VectorUtils {
             }
 
             // check if it’s the start of a surrogate pair
-            if (first >= 0xD800 && first <= 0xDBFF && (name.length() > (idx + 1))) {
+            if (0xD800 <= first && first <= 0xDBFF && (name.length() > (idx + 1))) {
                 char second = name.charAt(idx + 1);
-                if (second >= 0xDC00 && second <= 0xDFFF) {
+                if (0xDC00 <= second && second <= 0xDFFF) {
                     chars++;
                 }
             }
@@ -394,7 +269,7 @@ public class VectorUtils {
             firstChar = name.substring(idx, idx + chars);
         }
 
-        return firstChar.toUpperCase();
+        return firstChar.toUpperCase(VectorLocale.INSTANCE.getApplicationLocale());
     }
 
     /**
@@ -430,7 +305,8 @@ public class VectorUtils {
     private static void setDefaultMemberAvatar(final ImageView imageView, final String userId, final String displayName) {
         // sanity checks
         if (null != imageView && !TextUtils.isEmpty(userId)) {
-            final Bitmap bitmap = VectorUtils.getAvatar(imageView.getContext(), VectorUtils.getAvatarColor(userId), TextUtils.isEmpty(displayName) ? userId : displayName, true);
+            final Bitmap bitmap = VectorUtils.getAvatar(imageView.getContext(),
+                    VectorUtils.getAvatarColor(userId), TextUtils.isEmpty(displayName) ? userId : displayName, true);
 
             if (Looper.getMainLooper().getThread() == Thread.currentThread()) {
                 imageView.setImageBitmap(bitmap);
@@ -451,17 +327,6 @@ public class VectorUtils {
     }
 
     /**
-     * Set the default vector room avatar.
-     *
-     * @param imageView   the image view.
-     * @param roomId      the room id.
-     * @param displayName the room display name.
-     */
-    public static void setDefaultRoomVectorAvatar(ImageView imageView, String roomId, String displayName) {
-        VectorUtils.setDefaultMemberAvatar(imageView, roomId, displayName);
-    }
-
-    /**
      * Set the room avatar in an imageView.
      *
      * @param context   the context
@@ -471,7 +336,38 @@ public class VectorUtils {
      */
     public static void loadRoomAvatar(Context context, MXSession session, ImageView imageView, Room room) {
         if (null != room) {
-            VectorUtils.loadUserAvatar(context, session, imageView, room.getAvatarUrl(), room.getRoomId(), VectorUtils.getRoomDisplayName(context, session, room));
+            VectorUtils.loadUserAvatar(context,
+                    session, imageView, room.getAvatarUrl(), room.getRoomId(), room.getRoomDisplayName(context));
+        }
+    }
+
+    /**
+     * Set the room avatar in an imageView by consider the room preview data.
+     *
+     * @param context         the context
+     * @param session         the session
+     * @param imageView       the image view
+     * @param roomPreviewData the room preview
+     */
+    public static void loadRoomAvatar(Context context, MXSession session, ImageView imageView, RoomPreviewData roomPreviewData) {
+        if (null != roomPreviewData) {
+            VectorUtils.loadUserAvatar(context,
+                    session, imageView, roomPreviewData.getRoomAvatarUrl(), roomPreviewData.getRoomId(), roomPreviewData.getRoomName());
+        }
+    }
+
+    /**
+     * Set the group avatar in an imageView.
+     *
+     * @param context   the context
+     * @param session   the session
+     * @param imageView the image view
+     * @param group     the group
+     */
+    public static void loadGroupAvatar(Context context, MXSession session, ImageView imageView, Group group) {
+        if (null != group) {
+            VectorUtils.loadUserAvatar(context,
+                    session, imageView, group.getAvatarUrl(), group.getGroupId(), group.getDisplayName());
         }
     }
 
@@ -491,7 +387,7 @@ public class VectorUtils {
 
             String callAvatarUrl = room.getCallAvatarUrl();
             String roomId = room.getRoomId();
-            String displayName = VectorUtils.getRoomDisplayName(context, session, room);
+            String displayName = room.getRoomDisplayName(context);
             int pixelsSide = imageView.getLayoutParams().width;
 
             // when size < 0, it means that the render graph must compute it
@@ -509,8 +405,9 @@ public class VectorUtils {
             }
 
             // if the avatar is already cached, use it
-            if (session.getMediasCache().isAvatarThumbnailCached(callAvatarUrl, context.getResources().getDimensionPixelSize(R.dimen.profile_avatar_size))) {
-                session.getMediasCache().loadAvatarThumbnail(session.getHomeserverConfig(), imageView, callAvatarUrl, context.getResources().getDimensionPixelSize(R.dimen.profile_avatar_size));
+            if (session.getMediaCache().isAvatarThumbnailCached(callAvatarUrl, context.getResources().getDimensionPixelSize(R.dimen.profile_avatar_size))) {
+                session.getMediaCache().loadAvatarThumbnail(session.getHomeServerConfig(),
+                        imageView, callAvatarUrl, context.getResources().getDimensionPixelSize(R.dimen.profile_avatar_size));
             } else {
                 Bitmap bitmap = null;
 
@@ -520,7 +417,8 @@ public class VectorUtils {
                 }
 
                 // until the dedicated avatar is loaded.
-                session.getMediasCache().loadAvatarThumbnail(session.getHomeserverConfig(), imageView, callAvatarUrl, context.getResources().getDimensionPixelSize(R.dimen.profile_avatar_size), bitmap);
+                session.getMediaCache().loadAvatarThumbnail(session.getHomeServerConfig(),
+                        imageView, callAvatarUrl, context.getResources().getDimensionPixelSize(R.dimen.profile_avatar_size), bitmap);
             }
         }
     }
@@ -568,7 +466,12 @@ public class VectorUtils {
      * @param userId      the user id
      * @param displayName the user display name
      */
-    public static void loadUserAvatar(final Context context, final MXSession session, final ImageView imageView, final String avatarUrl, final String userId, final String displayName) {
+    public static void loadUserAvatar(final Context context,
+                                      final MXSession session,
+                                      final ImageView imageView,
+                                      final String avatarUrl,
+                                      final String userId,
+                                      final String displayName) {
         // sanity check
         if ((null == session) || (null == imageView) || !session.isAlive()) {
             return;
@@ -577,8 +480,9 @@ public class VectorUtils {
         // reset the imageView tag
         imageView.setTag(null);
 
-        if (session.getMediasCache().isAvatarThumbnailCached(avatarUrl, context.getResources().getDimensionPixelSize(R.dimen.profile_avatar_size))) {
-            session.getMediasCache().loadAvatarThumbnail(session.getHomeserverConfig(), imageView, avatarUrl, context.getResources().getDimensionPixelSize(R.dimen.profile_avatar_size));
+        if (session.getMediaCache().isAvatarThumbnailCached(avatarUrl, context.getResources().getDimensionPixelSize(R.dimen.profile_avatar_size))) {
+            session.getMediaCache().loadAvatarThumbnail(session.getHomeServerConfig(),
+                    imageView, avatarUrl, context.getResources().getDimensionPixelSize(R.dimen.profile_avatar_size));
         } else {
             if (null == mImagesThread) {
                 mImagesThread = new HandlerThread("ImagesThread", Thread.MIN_PRIORITY);
@@ -587,24 +491,28 @@ public class VectorUtils {
                 mUIHandler = new Handler(Looper.getMainLooper());
             }
 
-            final Bitmap bitmap = VectorUtils.getAvatar(imageView.getContext(), VectorUtils.getAvatarColor(userId), TextUtils.isEmpty(displayName) ? userId : displayName, false);
+            final Bitmap bitmap = VectorUtils.getAvatar(imageView.getContext(),
+                    VectorUtils.getAvatarColor(userId), TextUtils.isEmpty(displayName) ? userId : displayName, false);
 
             // test if the default avatar has been computed
             if (null != bitmap) {
                 imageView.setImageBitmap(bitmap);
 
-                final String tag = avatarUrl + userId + displayName;
-                imageView.setTag(tag);
+                if (!TextUtils.isEmpty(avatarUrl)) {
+                    final String tag = avatarUrl + userId + displayName;
+                    imageView.setTag(tag);
 
-                if (!MXMediasCache.isMediaUrlUnreachable(avatarUrl)) {
-                    mImagesThreadHandler.post(new Runnable() {
-                        @Override
-                        public void run() {
-                            if (TextUtils.equals(tag, (String) imageView.getTag())) {
-                                session.getMediasCache().loadAvatarThumbnail(session.getHomeserverConfig(), imageView, avatarUrl, context.getResources().getDimensionPixelSize(R.dimen.profile_avatar_size), bitmap);
+                    if (!MXMediaCache.isMediaUrlUnreachable(avatarUrl)) {
+                        mImagesThreadHandler.post(new Runnable() {
+                            @Override
+                            public void run() {
+                                if (TextUtils.equals(tag, (String) imageView.getTag())) {
+                                    session.getMediaCache().loadAvatarThumbnail(session.getHomeServerConfig(),
+                                            imageView, avatarUrl, context.getResources().getDimensionPixelSize(R.dimen.profile_avatar_size), bitmap);
+                                }
                             }
-                        }
-                    });
+                        });
+                    }
                 }
             } else {
                 final String tmpTag0 = "00" + avatarUrl + "-" + userId + "--" + displayName;
@@ -618,7 +526,7 @@ public class VectorUtils {
                             imageView.setTag(null);
                             setDefaultMemberAvatar(imageView, userId, displayName);
 
-                            if (!MXMediasCache.isMediaUrlUnreachable(avatarUrl)) {
+                            if (!TextUtils.isEmpty(avatarUrl) && !MXMediaCache.isMediaUrlUnreachable(avatarUrl)) {
                                 final String tmpTag1 = "11" + avatarUrl + "-" + userId + "--" + displayName;
                                 imageView.setTag(tmpTag1);
 
@@ -636,8 +544,15 @@ public class VectorUtils {
                                                 public void run() {
                                                     // test if the imageView tag has not been updated
                                                     if (TextUtils.equals(tmptag2, (String) imageView.getTag())) {
-                                                        final Bitmap bitmap = VectorUtils.getAvatar(imageView.getContext(), VectorUtils.getAvatarColor(userId), TextUtils.isEmpty(displayName) ? userId : displayName, false);
-                                                        session.getMediasCache().loadAvatarThumbnail(session.getHomeserverConfig(), imageView, avatarUrl, context.getResources().getDimensionPixelSize(R.dimen.profile_avatar_size), bitmap);
+                                                        final Bitmap bitmap = VectorUtils.getAvatar(imageView.getContext(),
+                                                                VectorUtils.getAvatarColor(userId),
+                                                                TextUtils.isEmpty(displayName) ? userId : displayName,
+                                                                false);
+                                                        session.getMediaCache().loadAvatarThumbnail(session.getHomeServerConfig(),
+                                                                imageView,
+                                                                avatarUrl,
+                                                                context.getResources().getDimensionPixelSize(R.dimen.profile_avatar_size),
+                                                                bitmap);
                                                     }
                                                 }
                                             });
@@ -656,8 +571,6 @@ public class VectorUtils {
     // About / terms and conditions
     //==============================================================================================================
 
-    private static AlertDialog mMainAboutDialog = null;
-
     /**
      * Provide the application version
      *
@@ -665,91 +578,22 @@ public class VectorUtils {
      * @return the version. an empty string is not found.
      */
     public static String getApplicationVersion(final Context context) {
-        return im.vector.Matrix.getInstance(context).getVersion(false);
+        return Matrix.getInstance(context).getVersion(false, true);
     }
 
     /**
-     * Display the licenses text.
-     */
-    public static void displayThirdPartyLicenses() {
-        final Activity activity = VectorApp.getCurrentActivity();
-
-        if (null != activity) {
-            if (null != mMainAboutDialog) {
-                if (mMainAboutDialog.isShowing() && (null != mMainAboutDialog.getOwnerActivity())) {
-                    try {
-                        mMainAboutDialog.dismiss();
-                    } catch (Exception e) {
-                        Log.e(LOG_TAG, "## displayThirdPartyLicenses() : " + e.getMessage());
-                    }
-                }
-                mMainAboutDialog = null;
-            }
-
-            activity.runOnUiThread(new Runnable() {
-                @Override
-                public void run() {
-                    WebView view = (WebView) LayoutInflater.from(activity).inflate(R.layout.dialog_licenses, null);
-                    view.loadUrl("file:///android_asset/open_source_licenses.html");
-
-                    View titleView = LayoutInflater.from(activity).inflate(R.layout.dialog_licenses_header, null);
-
-                    view.setScrollbarFadingEnabled(false);
-                    mMainAboutDialog = new AlertDialog.Builder(activity)
-                            .setCustomTitle(titleView)
-                            .setView(view)
-                            .setPositiveButton(android.R.string.ok, new DialogInterface.OnClickListener() {
-                                @Override
-                                public void onClick(DialogInterface dialog, int which) {
-                                    mMainAboutDialog = null;
-                                }
-                            })
-                            .setOnCancelListener(new DialogInterface.OnCancelListener() {
-                                @Override
-                                public void onCancel(DialogInterface dialog) {
-                                    mMainAboutDialog = null;
-                                }
-                            })
-                            .create();
-
-                    mMainAboutDialog.show();
-                }
-            });
-        }
-    }
-
-    /**
-     * Open a webview above the current activity.
+     * Open a web view above the current activity.
      *
      * @param context the application context
      * @param url     the url to open
      */
-    private static void displayInWebview(final Context context, String url) {
-        AlertDialog.Builder alert = new AlertDialog.Builder(context);
-
+    private static void displayInWebView(final Context context, String url) {
         WebView wv = new WebView(context);
         wv.loadUrl(url);
-        wv.setWebViewClient(new WebViewClient() {
-            @Override
-            public boolean shouldOverrideUrlLoading(WebView view, String url) {
-                view.loadUrl(url);
-
-                return true;
-            }
-        });
-
-        alert.setView(wv);
-        alert.setPositiveButton(android.R.string.ok, null);
-        alert.show();
-    }
-
-    /**
-     * Display the term and conditions.
-     */
-    public static void displayAppTac() {
-        if (null != VectorApp.getCurrentActivity()) {
-            displayInWebview(VectorApp.getCurrentActivity(), "https://riot.im/tac");
-        }
+        new AlertDialog.Builder(context)
+                .setView(wv)
+                .setPositiveButton(android.R.string.ok, null)
+                .show();
     }
 
     /**
@@ -757,7 +601,16 @@ public class VectorUtils {
      */
     public static void displayAppCopyright() {
         if (null != VectorApp.getCurrentActivity()) {
-            displayInWebview(VectorApp.getCurrentActivity(), "https://riot.im/copyright");
+            displayInWebView(VectorApp.getCurrentActivity(), "https://riot.im/copyright");
+        }
+    }
+
+    /**
+     * Display the term and conditions.
+     */
+    public static void displayAppTac() {
+        if (null != VectorApp.getCurrentActivity()) {
+            displayInWebView(VectorApp.getCurrentActivity(), "https://riot.im/tac");
         }
     }
 
@@ -766,7 +619,16 @@ public class VectorUtils {
      */
     public static void displayAppPrivacyPolicy() {
         if (null != VectorApp.getCurrentActivity()) {
-            displayInWebview(VectorApp.getCurrentActivity(), "https://riot.im/privacy");
+            displayInWebView(VectorApp.getCurrentActivity(), "https://riot.im/privacy");
+        }
+    }
+
+    /**
+     * Display the licenses text.
+     */
+    public static void displayThirdPartyLicenses() {
+        if (null != VectorApp.getCurrentActivity()) {
+            displayInWebView(VectorApp.getCurrentActivity(), "file:///android_asset/open_source_licenses.html");
         }
     }
 
@@ -781,7 +643,7 @@ public class VectorUtils {
      * @return the bitmap uri
      */
     @SuppressLint("NewApi")
-    public static Uri getThumbnailUriFromIntent(Context context, final Intent intent, MXMediasCache mediasCache) {
+    public static Uri getThumbnailUriFromIntent(Context context, final Intent intent, MXMediaCache mediasCache) {
         // sanity check
         if ((null != intent) && (null != context) && (null != mediasCache)) {
             Uri thumbnailUri = null;
@@ -809,14 +671,19 @@ public class VectorUtils {
                         InputStream stream = resource.mContentStream;
                         int rotationAngle = ImageUtils.getRotationAngleForBitmap(context, thumbnailUri);
 
+                        Log.d(LOG_TAG, "## getThumbnailUriFromIntent() :  " + thumbnailUri + " rotationAngle " + rotationAngle);
+
                         String mediaUrl = ImageUtils.scaleAndRotateImage(context, stream, resource.mMimeType, 1024, rotationAngle, mediasCache);
                         thumbnailUri = Uri.parse(mediaUrl);
+                    } else if (null != resource) {
+                        Log.d(LOG_TAG, "## getThumbnailUriFromIntent() : cannot manage " + thumbnailUri + " mMimeType " + resource.mMimeType);
+                    } else {
+                        Log.d(LOG_TAG, "## getThumbnailUriFromIntent() : cannot manage " + thumbnailUri + " --> cannot open the dedicated file");
                     }
 
                     return thumbnailUri;
-
                 } catch (Exception e) {
-                    Log.e(LOG_TAG, "## etThumbnailUriFromIntent failed " + e.getMessage());
+                    Log.e(LOG_TAG, "## getThumbnailUriFromIntent failed " + e.getMessage(), e);
                 }
             }
         }
@@ -839,16 +706,24 @@ public class VectorUtils {
         String formattedString;
 
         if (secondsInterval < 0) {
-            formattedString = "0" + context.getResources().getString(R.string.format_time_s);
+            formattedString = context.getResources().getQuantityString(R.plurals.format_time_s, 0, 0);
         } else {
             if (secondsInterval < 60) {
-                formattedString = secondsInterval + context.getResources().getString(R.string.format_time_s);
+                formattedString = context.getResources().getQuantityString(R.plurals.format_time_s,
+                        (int) secondsInterval,
+                        (int) secondsInterval);
             } else if (secondsInterval < 3600) {
-                formattedString = (secondsInterval / 60) + context.getResources().getString(R.string.format_time_m);
+                formattedString = context.getResources().getQuantityString(R.plurals.format_time_m,
+                        (int) (secondsInterval / 60),
+                        (int) (secondsInterval / 60));
             } else if (secondsInterval < 86400) {
-                formattedString = (secondsInterval / 3600) + context.getResources().getString(R.string.format_time_h);
+                formattedString = context.getResources().getQuantityString(R.plurals.format_time_h,
+                        (int) (secondsInterval / 3600),
+                        (int) (secondsInterval / 3600));
             } else {
-                formattedString = (secondsInterval / 86400) + context.getResources().getString(R.string.format_time_d);
+                formattedString = context.getResources().getQuantityString(R.plurals.format_time_d,
+                        (int) (secondsInterval / 86400),
+                        (int) (secondsInterval / 86400));
             }
         }
 
@@ -865,7 +740,10 @@ public class VectorUtils {
      * @param refreshCallback the presence callback.
      * @return the online status description.
      */
-    public static String getUserOnlineStatus(final Context context, final MXSession session, final String userId, final SimpleApiCallback<Void> refreshCallback) {
+    public static String getUserOnlineStatus(final Context context,
+                                             final MXSession session,
+                                             final String userId,
+                                             final ApiCallback<Void> refreshCallback) {
         // sanity checks
         if ((null == session) || (null == userId)) {
             return null;
@@ -904,14 +782,14 @@ public class VectorUtils {
                         try {
                             refreshCallback.onSuccess(null);
                         } catch (Exception e) {
-                            Log.e(LOG_TAG, "getUserOnlineStatus refreshCallback failed");
+                            Log.e(LOG_TAG, "getUserOnlineStatus refreshCallback failed", e);
                         }
                     }
                 }
 
                 @Override
                 public void onNetworkError(Exception e) {
-                    Log.e(LOG_TAG, "getUserOnlineStatus onNetworkError " + e.getLocalizedMessage());
+                    Log.e(LOG_TAG, "getUserOnlineStatus onNetworkError " + e.getLocalizedMessage(), e);
                 }
 
                 @Override
@@ -921,7 +799,7 @@ public class VectorUtils {
 
                 @Override
                 public void onUnexpectedError(Exception e) {
-                    Log.e(LOG_TAG, "getUserOnlineStatus onUnexpectedError " + e.getLocalizedMessage());
+                    Log.e(LOG_TAG, "getUserOnlineStatus onUnexpectedError " + e.getLocalizedMessage(), e);
                 }
             });
         }
@@ -933,18 +811,20 @@ public class VectorUtils {
 
         String presenceText = null;
         if (TextUtils.equals(user.presence, User.PRESENCE_ONLINE)) {
-            presenceText = context.getResources().getString(R.string.room_participants_online);
+            presenceText = context.getString(R.string.room_participants_online);
         } else if (TextUtils.equals(user.presence, User.PRESENCE_UNAVAILABLE)) {
-            presenceText = context.getResources().getString(R.string.room_participants_idle);
+            presenceText = context.getString(R.string.room_participants_idle);
         } else if (TextUtils.equals(user.presence, User.PRESENCE_OFFLINE) || (null == user.presence)) {
-            presenceText = context.getResources().getString(R.string.room_participants_offline);
+            presenceText = context.getString(R.string.room_participants_offline);
         }
 
         if (presenceText != null) {
             if ((null != user.currently_active) && user.currently_active) {
-                presenceText += " " + context.getResources().getString(R.string.room_participants_now);
+                presenceText = context.getString(R.string.room_participants_now, presenceText);
             } else if ((null != user.lastActiveAgo) && (user.lastActiveAgo > 0)) {
-                presenceText += " " + formatSecondsIntervalFloored(context, user.getAbsoluteLastActiveAgo() / 1000L) + " " + context.getResources().getString(R.string.room_participants_ago);
+                presenceText = context.getString(R.string.room_participants_ago, presenceText,
+                        formatSecondsIntervalFloored(context,
+                                user.getAbsoluteLastActiveAgo() / 1000L));
             }
         }
 
@@ -990,48 +870,6 @@ public class VectorUtils {
                     + "[\\p{Alnum}.,%_=?&#\\-+()\\[\\]\\*$~@!:/{};']*)",
             Pattern.CASE_INSENSITIVE | Pattern.MULTILINE | Pattern.DOTALL);
 
-    /**
-     * List the URLs in a text.
-     *
-     * @param text the text to parse
-     * @return the list of URLss
-     */
-    public static List<String> listURLs(String text) {
-        ArrayList<String> URLs = new ArrayList<>();
-
-        // sanity checks
-        if (!TextUtils.isEmpty(text)) {
-            Matcher matcher = mUrlPattern.matcher(text);
-
-            while (matcher.find()) {
-                int matchStart = matcher.start(1);
-                int matchEnd = matcher.end();
-
-                String charBef = "";
-                String charAfter = "";
-
-                if (matchStart > 2) {
-                    charBef = text.substring(matchStart - 2, matchStart);
-                }
-
-                if ((matchEnd - 1) < text.length()) {
-                    charAfter = text.substring(matchEnd - 1, matchEnd);
-                }
-
-                // keep the link between parenthesis, it might be a link [title](link)
-                if (!TextUtils.equals(charAfter, ")") || !TextUtils.equals(charBef, "](")) {
-                    String url = text.substring(matchStart, matchEnd);
-
-                    if (URLs.indexOf(url) < 0) {
-                        URLs.add(url);
-                    }
-                }
-            }
-        }
-
-        return URLs;
-    }
-
     //==============================================================================================================
     // ExpandableListView tools
     //==============================================================================================================
@@ -1045,8 +883,8 @@ public class VectorUtils {
      * @param adapter            the linked adapter
      * @return visible views map
      */
-    public static HashMap<Integer, List<Integer>> getVisibleChildViews(ExpandableListView expandableListView, BaseExpandableListAdapter adapter) {
-        HashMap<Integer, List<Integer>> map = new HashMap<>();
+    public static Map<Integer, List<Integer>> getVisibleChildViews(ExpandableListView expandableListView, BaseExpandableListAdapter adapter) {
+        Map<Integer, List<Integer>> map = new HashMap<>();
 
         long firstPackedPosition = expandableListView.getExpandableListPosition(expandableListView.getFirstVisiblePosition());
 
@@ -1059,7 +897,7 @@ public class VectorUtils {
         int lastChildPosition = ExpandableListView.getPackedPositionChild(lastPackedPosition);
 
         for (int groupPos = firstGroupPosition; groupPos <= lastGroupPosition; groupPos++) {
-            ArrayList<Integer> list = new ArrayList<>();
+            List<Integer> list = new ArrayList<>();
 
             int startChildPos = (groupPos == firstGroupPosition) ? firstChildPosition : 0;
             int endChildPos = (groupPos == lastGroupPosition) ? lastChildPosition : adapter.getChildrenCount(groupPos) - 1;

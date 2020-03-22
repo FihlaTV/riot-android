@@ -1,5 +1,6 @@
 /*
  * Copyright 2016 OpenMarket Ltd
+ * Copyright 2018 New Vector Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,14 +19,15 @@ package im.vector.fragments;
 
 import android.content.Intent;
 import android.os.Bundle;
-import android.support.v4.app.Fragment;
 import android.text.TextUtils;
-import android.view.LayoutInflater;
 import android.view.View;
-import android.view.ViewGroup;
 import android.widget.ExpandableListView;
 
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 import org.matrix.androidsdk.MXSession;
+import org.matrix.androidsdk.core.Log;
+import org.matrix.androidsdk.core.MXPatterns;
 import org.matrix.androidsdk.fragments.MatrixMessageListFragment;
 import org.matrix.androidsdk.listeners.MXEventListener;
 import org.matrix.androidsdk.rest.model.Event;
@@ -34,6 +36,7 @@ import org.matrix.androidsdk.rest.model.User;
 import java.util.List;
 import java.util.Map;
 
+import butterknife.BindView;
 import im.vector.Matrix;
 import im.vector.R;
 import im.vector.activity.VectorBaseSearchActivity;
@@ -44,21 +47,16 @@ import im.vector.contacts.Contact;
 import im.vector.contacts.ContactsManager;
 import im.vector.util.VectorUtils;
 
-public class VectorSearchPeopleListFragment extends Fragment {
+public class VectorSearchPeopleListFragment extends VectorBaseFragment {
 
     private static final String ARG_MATRIX_ID = "VectorSearchPeopleListFragment.ARG_MATRIX_ID";
     private static final String ARG_LAYOUT_ID = "VectorSearchPeopleListFragment.ARG_LAYOUT_ID";
 
     // the session
     private MXSession mSession;
-    private ExpandableListView mPeopleListView;
+    @BindView(R.id.search_people_list)
+    ExpandableListView mPeopleListView;
     private VectorParticipantsAdapter mAdapter;
-
-    // pending requests
-    // a request might be called whereas the fragment is not initialized
-    // wait the resume to perform the search
-    private String mPendingPattern;
-    private MatrixMessageListFragment.OnSearchResultListener mPendingSearchResultListener;
 
     // contacts manager listener
     // detect if a contact is a matrix user
@@ -91,6 +89,16 @@ public class VectorSearchPeopleListFragment extends Fragment {
                     }
                 });
             }
+        }
+
+        @Override
+        public void onIdentityServerTermsNotSigned(String token) {
+            Log.w("VectorSearchPeopleListFragment", "onIdentityServerTermsNotSigned()");
+        }
+
+        @Override
+        public void onNoIdentityServerDefined() {
+
         }
     };
 
@@ -143,20 +151,25 @@ public class VectorSearchPeopleListFragment extends Fragment {
     }
 
     @Override
-    public View onCreateView(LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
-        super.onCreateView(inflater, container, savedInstanceState);
+    public int getLayoutResId() {
         Bundle args = getArguments();
 
+        return args.getInt(ARG_LAYOUT_ID);
+    }
+
+    @Override
+    public void onViewCreated(@NotNull View view, @Nullable Bundle savedInstanceState) {
+        super.onViewCreated(view, savedInstanceState);
+
+        Bundle args = getArguments();
 
         String matrixId = args.getString(ARG_MATRIX_ID);
         mSession = Matrix.getInstance(getActivity()).getSession(matrixId);
 
-        if (null == mSession) {
+        if ((null == mSession) || !mSession.isAlive()) {
             throw new RuntimeException("Must have valid default MXSession.");
         }
 
-        View v = inflater.inflate(args.getInt(ARG_LAYOUT_ID), container, false);
-        mPeopleListView = (ExpandableListView) v.findViewById(R.id.search_people_list);
         // the chevron is managed in the header view
         mPeopleListView.setGroupIndicator(null);
         mAdapter = new VectorParticipantsAdapter(getActivity(),
@@ -191,8 +204,6 @@ public class VectorSearchPeopleListFragment extends Fragment {
                 return true;
             }
         });
-
-        return v;
     }
 
     /**
@@ -210,8 +221,6 @@ public class VectorSearchPeopleListFragment extends Fragment {
      */
     public void searchPattern(final String pattern, final MatrixMessageListFragment.OnSearchResultListener onSearchResultListener) {
         if (null == mPeopleListView) {
-            mPendingPattern = pattern;
-            mPendingSearchResultListener = onSearchResultListener;
             return;
         }
 
@@ -224,14 +233,18 @@ public class VectorSearchPeopleListFragment extends Fragment {
         ParticipantAdapterItem firstEntry = null;
         if (!TextUtils.isEmpty(pattern)) {
             // test if the pattern is a valid email or matrix id
-            boolean isValid = android.util.Patterns.EMAIL_ADDRESS.matcher(pattern).matches() ||
-                    MXSession.isUserId(pattern);
+            boolean isValid = android.util.Patterns.EMAIL_ADDRESS.matcher(pattern).matches()
+                    || MXPatterns.isUserId(pattern);
             firstEntry = new ParticipantAdapterItem(pattern, null, pattern, isValid);
         }
 
         mAdapter.setSearchedPattern(pattern, firstEntry, new VectorParticipantsAdapter.OnParticipantsSearchListener() {
             @Override
             public void onSearchEnd(final int count) {
+                if (!isAdded()) {
+                    return;
+                }
+
                 mPeopleListView.post(new Runnable() {
                     @Override
                     public void run() {

@@ -1,5 +1,6 @@
 /*
  * Copyright 2017 Vector Creations Ltd
+ * Copyright 2018 New Vector Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,38 +19,35 @@ package im.vector.activity;
 
 import android.content.Context;
 import android.content.Intent;
-import android.os.Bundle;
-import android.support.design.widget.TextInputEditText;
-import android.support.design.widget.TextInputLayout;
-import android.support.v7.app.AppCompatActivity;
-import android.support.v7.widget.Toolbar;
+import android.net.Uri;
 import android.text.Editable;
 import android.text.TextUtils;
 import android.text.TextWatcher;
 import android.view.KeyEvent;
-import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
 import android.view.inputmethod.EditorInfo;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import com.google.android.material.textfield.TextInputEditText;
+import com.google.android.material.textfield.TextInputLayout;
 import com.google.i18n.phonenumbers.NumberParseException;
 import com.google.i18n.phonenumbers.PhoneNumberUtil;
 import com.google.i18n.phonenumbers.Phonenumber;
 
 import org.matrix.androidsdk.MXSession;
-import org.matrix.androidsdk.rest.callback.ApiCallback;
-import org.matrix.androidsdk.rest.model.MatrixError;
-import org.matrix.androidsdk.rest.model.ThreePid;
-import org.matrix.androidsdk.util.Log;
+import org.matrix.androidsdk.core.Log;
+import org.matrix.androidsdk.core.callback.ApiCallback;
+import org.matrix.androidsdk.core.model.MatrixError;
+import org.matrix.androidsdk.features.identityserver.IdentityServerManager;
+import org.matrix.androidsdk.rest.model.pid.ThreePid;
 
 import im.vector.Matrix;
 import im.vector.R;
 import im.vector.util.PhoneNumberUtils;
-import im.vector.util.ThemeUtils;
 
-public class PhoneNumberAdditionActivity extends AppCompatActivity implements TextView.OnEditorActionListener, TextWatcher, View.OnClickListener {
+public class PhoneNumberAdditionActivity extends VectorAppCompatActivity implements TextView.OnEditorActionListener, TextWatcher, View.OnClickListener {
 
     private static final String LOG_TAG = PhoneNumberAdditionActivity.class.getSimpleName();
 
@@ -62,7 +60,6 @@ public class PhoneNumberAdditionActivity extends AppCompatActivity implements Te
     private TextInputLayout mCountryLayout;
     private TextInputEditText mPhoneNumber;
     private TextInputLayout mPhoneNumberLayout;
-    private View mLoadingView;
 
     private MXSession mSession;
 
@@ -76,7 +73,7 @@ public class PhoneNumberAdditionActivity extends AppCompatActivity implements Te
     // Used to prevent user to submit several times in a row
     private boolean mIsSubmittingPhone;
 
-     /*
+    /*
      * *********************************************************************************************
      * Static methods
      * *********************************************************************************************
@@ -89,32 +86,38 @@ public class PhoneNumberAdditionActivity extends AppCompatActivity implements Te
     }
 
     /*
-    * *********************************************************************************************
-    * Activity lifecycle
-    * *********************************************************************************************
-    */
+     * *********************************************************************************************
+     * Activity lifecycle
+     * *********************************************************************************************
+     */
+
     @Override
-    public void onCreate(Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
+    public int getLayoutRes() {
+        return R.layout.activity_phone_number_addition;
+    }
 
-        setTitle(R.string.settings_add_phone_number);
-        setContentView(R.layout.activity_phone_number_addition);
+    @Override
+    public int getTitleRes() {
+        return R.string.settings_add_phone_number;
+    }
 
-        Toolbar toolbar = (Toolbar) findViewById(R.id.toolbar);
-        setSupportActionBar(toolbar);
-        if (null != getSupportActionBar()) {
-            getSupportActionBar().setDisplayShowHomeEnabled(true);
-            getSupportActionBar().setDisplayHomeAsUpEnabled(true);
-        }
+    @Override
+    public void initUiAndData() {
+        configureToolbar();
 
-        mCountry = (TextInputEditText) findViewById(R.id.phone_number_country_value);
-        mCountryLayout = (TextInputLayout) findViewById(R.id.phone_number_country);
-        mPhoneNumber = (TextInputEditText) findViewById(R.id.phone_number_value);
-        mPhoneNumberLayout = (TextInputLayout) findViewById(R.id.phone_number);
-        mLoadingView = findViewById(R.id.loading_view);
+        mCountry = findViewById(R.id.phone_number_country_value);
+        mCountryLayout = findViewById(R.id.phone_number_country);
+        mPhoneNumber = findViewById(R.id.phone_number_value);
+        mPhoneNumberLayout = findViewById(R.id.phone_number);
+        setWaitingView(findViewById(R.id.loading_view));
 
         final Intent intent = getIntent();
         mSession = Matrix.getInstance(this).getSession(intent.getStringExtra(EXTRA_MATRIX_ID));
+
+        if ((null == mSession) || !mSession.isAlive()) {
+            finish();
+            return;
+        }
 
         initViews();
     }
@@ -126,19 +129,13 @@ public class PhoneNumberAdditionActivity extends AppCompatActivity implements Te
     }
 
     @Override
-    public boolean onCreateOptionsMenu(Menu menu) {
-        getMenuInflater().inflate(R.menu.menu_phone_number_addition, menu);
-        CommonActivityUtils.tintMenuIcons(menu, ThemeUtils.getColor(this, R.attr.icon_tint_on_dark_action_bar_color));
-        return true;
+    public int getMenuRes() {
+        return R.menu.menu_phone_number_addition;
     }
 
     @Override
     public boolean onOptionsItemSelected(MenuItem item) {
         switch (item.getItemId()) {
-            case android.R.id.home:
-                setResult(RESULT_CANCELED);
-                finish();
-                return true;
             case R.id.action_add_phone_number:
                 submitPhoneNumber();
                 return true;
@@ -186,10 +183,10 @@ public class PhoneNumberAdditionActivity extends AppCompatActivity implements Te
     }
 
     /*
-    * *********************************************************************************************
-    * Utils
-    * *********************************************************************************************
-    */
+     * *********************************************************************************************
+     * Utils
+     * *********************************************************************************************
+     */
 
     private void initViews() {
         setCountryCode(PhoneNumberUtils.getCountryCode(this));
@@ -259,18 +256,18 @@ public class PhoneNumberAdditionActivity extends AppCompatActivity implements Te
         if (!mIsSubmittingPhone) {
             mIsSubmittingPhone = true;
 
-            mLoadingView.setVisibility(View.VISIBLE);
+            showWaitingView();
 
             final String e164phone = PhoneNumberUtils.getE164format(phoneNumber);
             // Extract from phone number object instead of using mCurrentRegionCode just in case
             final String countryCode = PhoneNumberUtil.getInstance().getRegionCodeForCountryCode(phoneNumber.getCountryCode());
-            final ThreePid pid = new ThreePid(e164phone, countryCode, ThreePid.MEDIUM_MSISDN);
+            final ThreePid pid = ThreePid.Companion.fromPhoneNumber(e164phone, countryCode);
 
-            mSession.getMyUser().requestPhoneNumberValidationToken(pid, new ApiCallback<Void>() {
+            mSession.getIdentityServerManager().startAddSessionForPhoneNumber(pid,null, new ApiCallback<ThreePid>() {
                 @Override
-                public void onSuccess(Void info) {
-                    mLoadingView.setVisibility(View.GONE);
-                    Intent intent = PhoneNumberVerificationActivity.getIntent(PhoneNumberAdditionActivity.this,
+                public void onSuccess(ThreePid pid) {
+                    hideWaitingView();
+                    Intent intent = PhoneNumberVerificationActivity.Companion.getIntent(PhoneNumberAdditionActivity.this,
                             mSession.getCredentials().userId, pid);
                     startActivityForResult(intent, REQUEST_VERIFICATION);
                 }
@@ -306,15 +303,15 @@ public class PhoneNumberAdditionActivity extends AppCompatActivity implements Te
      */
     private void onSubmitPhoneError(final String errorMessage) {
         mIsSubmittingPhone = false;
-        mLoadingView.setVisibility(View.GONE);
+        hideWaitingView();
         Toast.makeText(this, errorMessage, Toast.LENGTH_SHORT).show();
     }
 
     /*
-    * *********************************************************************************************
-    * Listeners
-    * *********************************************************************************************
-    */
+     * *********************************************************************************************
+     * Listeners
+     * *********************************************************************************************
+     */
 
     @Override
     public void onClick(View v) {

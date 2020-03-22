@@ -1,5 +1,6 @@
 /*
  * Copyright 2016 OpenMarket Ltd
+ * Copyright 2018 New Vector Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,9 +16,8 @@
  */
 
 package im.vector.adapters;
-import android.content.Context;
-import org.matrix.androidsdk.util.Log;
 
+import android.content.Context;
 import android.text.TextUtils;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -28,8 +28,11 @@ import android.widget.ImageView;
 import android.widget.TextView;
 
 import org.matrix.androidsdk.MXSession;
+import org.matrix.androidsdk.core.Log;
 import org.matrix.androidsdk.crypto.data.MXDeviceInfo;
 
+import butterknife.BindView;
+import butterknife.ButterKnife;
 import im.vector.R;
 
 /**
@@ -37,18 +40,20 @@ import im.vector.R;
  */
 public class VectorMemberDetailsDevicesAdapter extends ArrayAdapter<MXDeviceInfo> {
 
-    private static final String LOG_TAG = "VRoomCreationAdapter";
+    private static final String LOG_TAG = VectorMemberDetailsDevicesAdapter.class.getSimpleName();
 
     // remove participants listener
     public interface IDevicesAdapterListener {
         /**
          * Verify device button handler
+         *
          * @param aDeviceInfo device info
          */
         void OnVerifyDeviceClick(MXDeviceInfo aDeviceInfo);
 
         /**
          * Block device button handler
+         *
          * @param aDeviceInfo device info
          */
         void OnBlockDeviceClick(MXDeviceInfo aDeviceInfo);
@@ -56,9 +61,6 @@ public class VectorMemberDetailsDevicesAdapter extends ArrayAdapter<MXDeviceInfo
 
     // layout info
     private final LayoutInflater mLayoutInflater;
-
-    // account info
-    private final MXSession mSession;
 
     // used layouts
     private final int mItemLayoutResourceId;
@@ -71,19 +73,19 @@ public class VectorMemberDetailsDevicesAdapter extends ArrayAdapter<MXDeviceInfo
 
     /**
      * Constructor
-     * @param aContext app context
+     *
+     * @param aContext              app context
      * @param aItemLayoutResourceId layout id to be displayed on each row
-     * @param aSession session
+     * @param aSession              session
      */
     public VectorMemberDetailsDevicesAdapter(Context aContext, int aItemLayoutResourceId, MXSession aSession) {
         super(aContext, aItemLayoutResourceId);
 
         mLayoutInflater = LayoutInflater.from(aContext);
         mItemLayoutResourceId = aItemLayoutResourceId;
-        mSession = aSession;
 
-        if(null != mSession.getCredentials()) {
-            myDeviceId = mSession.getCredentials().deviceId;
+        if (null != aSession.getCredentials()) {
+            myDeviceId = aSession.getCredentials().deviceId;
         } else {
             myDeviceId = null;
         }
@@ -91,6 +93,7 @@ public class VectorMemberDetailsDevicesAdapter extends ArrayAdapter<MXDeviceInfo
 
     /**
      * Defines a listener.
+     *
      * @param aListener the new listener.
      */
     public void setDevicesAdapterListener(IDevicesAdapterListener aListener) {
@@ -105,7 +108,7 @@ public class VectorMemberDetailsDevicesAdapter extends ArrayAdapter<MXDeviceInfo
 
             MXDeviceInfo deviceInfo = null;
 
-            for(int i = 0; i < getCount(); i++) {
+            for (int i = 0; i < getCount(); i++) {
                 if (TextUtils.equals(myDeviceId, getItem(i).deviceId)) {
                     deviceInfo = getItem(i);
                     break;
@@ -113,8 +116,8 @@ public class VectorMemberDetailsDevicesAdapter extends ArrayAdapter<MXDeviceInfo
             }
 
             if (null != deviceInfo) {
-                this.remove(deviceInfo);
-                this.insert(deviceInfo, 0);
+                remove(deviceInfo);
+                insert(deviceInfo, 0);
             }
 
             setNotifyOnChange(true);
@@ -125,93 +128,114 @@ public class VectorMemberDetailsDevicesAdapter extends ArrayAdapter<MXDeviceInfo
 
     @Override
     public View getView(int position, View convertView, ViewGroup parent) {
+        MemberDetailsDevicesViewHolder holder;
+
         if (convertView == null) {
             convertView = mLayoutInflater.inflate(mItemLayoutResourceId, parent, false);
+
+            holder = new MemberDetailsDevicesViewHolder(convertView);
+            convertView.setTag(holder);
+        } else {
+            holder = (MemberDetailsDevicesViewHolder) convertView.getTag();
         }
 
         final MXDeviceInfo deviceItem = getItem(position);
 
-        // retrieve the ui items
-        final Button buttonVerify = (Button) convertView.findViewById(R.id.button_verify);
-        final Button buttonBlock = (Button) convertView.findViewById(R.id.button_block);
-        final TextView deviceNameTextView = (TextView) convertView.findViewById(R.id.device_name);
-        final TextView deviceIdTextView = (TextView) convertView.findViewById(R.id.device_id);
-        final ImageView e2eIconView = (ImageView)convertView.findViewById(R.id.device_e2e_icon);
-
-        buttonVerify.setTransformationMethod(null);
-        buttonBlock.setTransformationMethod(null);
-
         // set devices text names
-        deviceNameTextView.setText(deviceItem.displayName());
-        deviceIdTextView.setText(deviceItem.deviceId);
+        holder.deviceNameTextView.setText(deviceItem.displayName());
+        holder.deviceIdTextView.setText(deviceItem.deviceId);
 
         // display e2e icon status
-        switch(deviceItem.mVerified) {
+        switch (deviceItem.mVerified) {
             case MXDeviceInfo.DEVICE_VERIFICATION_VERIFIED:
-                e2eIconView.setImageResource(R.drawable.e2e_verified);
+                holder.e2eIconView.setImageResource(R.drawable.e2e_verified);
                 break;
 
             case MXDeviceInfo.DEVICE_VERIFICATION_BLOCKED:
-                e2eIconView.setImageResource(R.drawable.e2e_blocked);
+                holder.e2eIconView.setImageResource(R.drawable.e2e_blocked);
                 break;
 
             default:
-                e2eIconView.setImageResource(R.drawable.e2e_warning);
+                holder.e2eIconView.setImageResource(R.drawable.e2e_warning);
                 break;
         }
 
         // display buttons label according to verification status
-        switch(deviceItem.mVerified) {
+        switch (deviceItem.mVerified) {
             case MXDeviceInfo.DEVICE_VERIFICATION_UNVERIFIED:
-                buttonVerify.setText(R.string.encryption_information_verify);
-                buttonBlock.setText(R.string.encryption_information_block);
+                holder.buttonVerify.setText(R.string.encryption_information_verify);
+                holder.buttonBlock.setText(R.string.encryption_information_block);
                 break;
 
             case MXDeviceInfo.DEVICE_VERIFICATION_VERIFIED:
-                buttonVerify.setText(R.string.encryption_information_unverify);
-                buttonBlock.setText(R.string.encryption_information_block);
+                holder.buttonVerify.setText(R.string.encryption_information_unverify);
+                holder.buttonBlock.setText(R.string.encryption_information_block);
                 break;
 
             case MXDeviceInfo.DEVICE_VERIFICATION_UNKNOWN:
-                buttonVerify.setText(R.string.encryption_information_verify);
-                buttonBlock.setText(R.string.encryption_information_block);
+                holder.buttonVerify.setText(R.string.encryption_information_verify);
+                holder.buttonBlock.setText(R.string.encryption_information_block);
                 break;
 
             default: // Blocked
-                buttonVerify.setText(R.string.encryption_information_verify);
-                buttonBlock.setText(R.string.encryption_information_unblock);
+                holder.buttonVerify.setText(R.string.encryption_information_verify);
+                holder.buttonBlock.setText(R.string.encryption_information_unblock);
                 break;
         }
 
-        buttonVerify.setVisibility(TextUtils.equals(myDeviceId, deviceItem.deviceId) ? View.INVISIBLE : View.VISIBLE);
-        buttonBlock.setVisibility(TextUtils.equals(myDeviceId, deviceItem.deviceId) ? View.INVISIBLE : View.VISIBLE);
+        holder.buttonVerify.setVisibility(TextUtils.equals(myDeviceId, deviceItem.deviceId) ? View.INVISIBLE : View.VISIBLE);
+        holder.buttonBlock.setVisibility(TextUtils.equals(myDeviceId, deviceItem.deviceId) ? View.INVISIBLE : View.VISIBLE);
 
-        buttonVerify.setOnClickListener(new View.OnClickListener() {
+        holder.buttonVerify.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 if (null != mActivityListener) {
                     try {
                         mActivityListener.OnVerifyDeviceClick(deviceItem);
                     } catch (Exception e) {
-                        Log.e(LOG_TAG, "## getView() : OnVerifyDeviceClick fails " + e.getMessage());
+                        Log.e(LOG_TAG, "## getView() : OnVerifyDeviceClick fails " + e.getMessage(), e);
                     }
                 }
             }
         });
 
-        buttonBlock.setOnClickListener(new View.OnClickListener() {
+        holder.buttonBlock.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 if (null != mActivityListener) {
                     try {
                         mActivityListener.OnBlockDeviceClick(deviceItem);
                     } catch (Exception e) {
-                        Log.e(LOG_TAG, "## getView() : OnBlockDeviceClick fails " + e.getMessage());
+                        Log.e(LOG_TAG, "## getView() : OnBlockDeviceClick fails " + e.getMessage(), e);
                     }
                 }
             }
         });
 
         return convertView;
+    }
+
+    class MemberDetailsDevicesViewHolder {
+        @BindView(R.id.button_verify)
+        Button buttonVerify;
+
+        @BindView(R.id.button_block)
+        Button buttonBlock;
+
+        @BindView(R.id.device_name)
+        TextView deviceNameTextView;
+
+        @BindView(R.id.device_id)
+        TextView deviceIdTextView;
+
+        @BindView(R.id.device_e2e_icon)
+        ImageView e2eIconView;
+
+        MemberDetailsDevicesViewHolder(View view) {
+            ButterKnife.bind(this, view);
+
+            buttonVerify.setTransformationMethod(null);
+            buttonBlock.setTransformationMethod(null);
+        }
     }
 }

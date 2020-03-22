@@ -1,6 +1,7 @@
 /*
  * Copyright 2016 OpenMarket Ltd
  * Copyright 2017 Vector Creations Ltd
+ * Copyright 2018 New Vector Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,7 +22,6 @@ import android.content.Context;
 import android.content.SharedPreferences;
 import android.os.Handler;
 import android.os.Looper;
-import android.preference.PreferenceManager;
 import android.text.TextUtils;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -33,16 +33,19 @@ import android.widget.ExpandableListView;
 import android.widget.ImageView;
 import android.widget.TextView;
 
+import androidx.preference.PreferenceManager;
+
 import org.matrix.androidsdk.MXSession;
+import org.matrix.androidsdk.core.Log;
+import org.matrix.androidsdk.core.MXPatterns;
+import org.matrix.androidsdk.core.callback.ApiCallback;
+import org.matrix.androidsdk.core.callback.SimpleApiCallback;
+import org.matrix.androidsdk.core.model.MatrixError;
 import org.matrix.androidsdk.data.Room;
 import org.matrix.androidsdk.data.store.IMXStore;
-import org.matrix.androidsdk.rest.callback.ApiCallback;
-import org.matrix.androidsdk.rest.callback.SimpleApiCallback;
-import org.matrix.androidsdk.rest.model.MatrixError;
 import org.matrix.androidsdk.rest.model.RoomMember;
-import org.matrix.androidsdk.rest.model.Search.SearchUsersResponse;
 import org.matrix.androidsdk.rest.model.User;
-import org.matrix.androidsdk.util.Log;
+import org.matrix.androidsdk.rest.model.search.SearchUsersResponse;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -59,6 +62,7 @@ import im.vector.activity.CommonActivityUtils;
 import im.vector.contacts.Contact;
 import im.vector.contacts.ContactsManager;
 import im.vector.contacts.PIDsRetriever;
+import im.vector.settings.VectorLocale;
 import im.vector.util.VectorUtils;
 
 /**
@@ -66,8 +70,7 @@ import im.vector.util.VectorUtils;
  * The first list row can be customized.
  */
 public class VectorParticipantsAdapter extends BaseExpandableListAdapter {
-
-    private static final String LOG_TAG = "VectorAddPartsAdapt";
+    private static final String LOG_TAG = VectorParticipantsAdapter.class.getSimpleName();
 
     private static final String KEY_EXPAND_STATE_SEARCH_LOCAL_CONTACTS_GROUP = "KEY_EXPAND_STATE_SEARCH_LOCAL_CONTACTS_GROUP";
     private static final String KEY_EXPAND_STATE_SEARCH_MATRIX_CONTACTS_GROUP = "KEY_EXPAND_STATE_SEARCH_MATRIX_CONTACTS_GROUP";
@@ -145,7 +148,12 @@ public class VectorParticipantsAdapter extends BaseExpandableListAdapter {
      * @param roomId                 the room id.
      * @param withAddIcon            whether we need to display the "+" icon
      */
-    public VectorParticipantsAdapter(Context context, int cellLayoutResourceId, int headerLayoutResourceId, MXSession session, String roomId, boolean withAddIcon) {
+    public VectorParticipantsAdapter(Context context,
+                                     int cellLayoutResourceId,
+                                     int headerLayoutResourceId,
+                                     MXSession session,
+                                     String roomId,
+                                     boolean withAddIcon) {
         mContext = context;
 
         mLayoutInflater = LayoutInflater.from(context);
@@ -183,7 +191,7 @@ public class VectorParticipantsAdapter extends BaseExpandableListAdapter {
         if (null == pattern) {
             pattern = "";
         } else {
-            pattern = pattern.toLowerCase().trim().toLowerCase();
+            pattern = pattern.toLowerCase().trim().toLowerCase(VectorLocale.INSTANCE.getApplicationLocale());
         }
 
         if (!pattern.equals(mPattern) || TextUtils.isEmpty(mPattern)) {
@@ -259,7 +267,7 @@ public class VectorParticipantsAdapter extends BaseExpandableListAdapter {
         }
     }
 
-    private void fillUsedMembersList() {
+    private void fillUsedMembersList(final ApiCallback<Void> callback) {
         IMXStore store = mSession.getDataHandler().getStore();
 
         // Used members (ids) which should be removed from the final list
@@ -270,51 +278,69 @@ public class VectorParticipantsAdapter extends BaseExpandableListAdapter {
             Room fromRoom = store.getRoom(mRoomId);
 
             if (null != fromRoom) {
-                Collection<RoomMember> members = fromRoom.getLiveState().getDisplayableMembers();
-                for (RoomMember member : members) {
-                    if (TextUtils.equals(member.membership, RoomMember.MEMBERSHIP_JOIN) || TextUtils.equals(member.membership, RoomMember.MEMBERSHIP_INVITE)) {
-                        mUsedMemberUserIds.add(member.getUserId());
-                    }
-                }
-            }
-        }
+                fromRoom.getDisplayableMembersAsync(new SimpleApiCallback<List<RoomMember>>(callback) {
+                    @Override
+                    public void onSuccess(List<RoomMember> members) {
+                        for (RoomMember member : members) {
+                            if (TextUtils.equals(member.membership, RoomMember.MEMBERSHIP_JOIN)
+                                    || TextUtils.equals(member.membership, RoomMember.MEMBERSHIP_INVITE)) {
+                                mUsedMemberUserIds.add(member.getUserId());
+                            }
+                        }
 
+                        fillUsedMembersListStep2(callback);
+                    }
+                });
+            } else {
+                fillUsedMembersListStep2(callback);
+            }
+        } else {
+            fillUsedMembersListStep2(callback);
+        }
+    }
+
+    private void fillUsedMembersListStep2(final ApiCallback<Void> callback) {
         // Add participants to hide to the used members list (when creating a new room)
         for (ParticipantAdapterItem item : mItemsToHide) {
             mUsedMemberUserIds.add(item.mUserId);
         }
+
+        callback.onSuccess(null);
     }
 
     /**
      * Refresh the un-invited members
      */
     private void listOtherMembers() {
-        fillUsedMembersList();
+        fillUsedMembersList(new SimpleApiCallback<Void>() {
+            @Override
+            public void onSuccess(Void info) {
+                List<ParticipantAdapterItem> participants = new ArrayList<>();
+                // Add all known matrix users
+                participants.addAll(VectorUtils.listKnownParticipants(mSession).values());
+                // Add phone contacts which have an email address
+                addContacts(participants);
 
-        List<ParticipantAdapterItem> participants = new ArrayList<>();
-        // Add all known matrix users
-        participants.addAll(VectorUtils.listKnownParticipants(mSession).values());
-        // Add phone contacts which have an email address
-        addContacts(participants);
+                // List of display names
+                List<String> displayNamesList = new ArrayList<>();
 
-        // List of display names
-        List<String> displayNamesList = new ArrayList<>();
+                for (Iterator<ParticipantAdapterItem> iterator = participants.iterator(); iterator.hasNext(); ) {
+                    ParticipantAdapterItem item = iterator.next();
+                    if (!mUsedMemberUserIds.isEmpty() && mUsedMemberUserIds.contains(item.mUserId)) {
+                        // Remove the used members from the final list
+                        iterator.remove();
+                    } else if (!TextUtils.isEmpty(item.mDisplayName)) {
+                        // Add to the display names list
+                        displayNamesList.add(item.mDisplayName.toLowerCase(VectorLocale.INSTANCE.getApplicationLocale()));
+                    }
+                }
 
-        for (Iterator<ParticipantAdapterItem> iterator = participants.iterator(); iterator.hasNext(); ) {
-            ParticipantAdapterItem item = iterator.next();
-            if (!mUsedMemberUserIds.isEmpty() && mUsedMemberUserIds.contains(item.mUserId)) {
-                // Remove the used members from the final list
-                iterator.remove();
-            } else if (!TextUtils.isEmpty(item.mDisplayName)) {
-                // Add to the display names list
-                displayNamesList.add(item.mDisplayName.toLowerCase());
+                synchronized (LOG_TAG) {
+                    mDisplayNamesList = displayNamesList;
+                    mUnusedParticipants = participants;
+                }
             }
-        }
-
-        synchronized (LOG_TAG) {
-            mDisplayNamesList = displayNamesList;
-            mUnusedParticipants = participants;
-        }
+        });
     }
 
     /**
@@ -416,64 +442,71 @@ public class VectorParticipantsAdapter extends BaseExpandableListAdapter {
         }
 
         if (!TextUtils.isEmpty(mPattern)) {
-            fillUsedMembersList();
-
-            final String fPattern = mPattern;
-
-            mSession.searchUsers(mPattern, MAX_USERS_SEARCH_COUNT, mUsedMemberUserIds, new ApiCallback<SearchUsersResponse>() {
+            fillUsedMembersList(new SimpleApiCallback<Void>() {
                 @Override
-                public void onSuccess(SearchUsersResponse searchUsersResponse) {
-                    if (TextUtils.equals(fPattern, mPattern)) {
-                        List<ParticipantAdapterItem> participantItemList = new ArrayList<>();
+                public void onSuccess(Void info) {
+                    final String fPattern = mPattern;
 
-                        if (null != searchUsersResponse.results) {
-                            for (User user : searchUsersResponse.results) {
-                                participantItemList.add(new ParticipantAdapterItem(user));
+                    mSession.searchUsers(mPattern, MAX_USERS_SEARCH_COUNT, mUsedMemberUserIds, new ApiCallback<SearchUsersResponse>() {
+                        @Override
+                        public void onSuccess(SearchUsersResponse searchUsersResponse) {
+                            if (TextUtils.equals(fPattern, mPattern)) {
+                                List<ParticipantAdapterItem> participantItemList = new ArrayList<>();
+
+                                if (null != searchUsersResponse.results) {
+                                    for (User user : searchUsersResponse.results) {
+                                        participantItemList.add(new ParticipantAdapterItem(user));
+                                    }
+                                }
+
+                                mIsOfflineContactsSearch = false;
+                                mKnownContactsLimited = (null != searchUsersResponse.limited) ? searchUsersResponse.limited : false;
+
+                                searchAccountKnownContacts(theFirstEntry, participantItemList, false, searchListener);
                             }
                         }
 
-                        mIsOfflineContactsSearch = false;
-                        mKnownContactsLimited = (null != searchUsersResponse.limited) ? searchUsersResponse.limited : false;
-                        onKnownContactsSearchEnd(participantItemList, theFirstEntry, searchListener);
-                    }
-                }
+                        private void onError() {
+                            if (TextUtils.equals(fPattern, mPattern)) {
+                                mIsOfflineContactsSearch = true;
+                                searchAccountKnownContacts(theFirstEntry, new ArrayList<ParticipantAdapterItem>(), true, searchListener);
+                            }
+                        }
 
-                private void onError() {
-                    if (TextUtils.equals(fPattern, mPattern)) {
-                        mIsOfflineContactsSearch = true;
-                        searchAccountKnownContacts(theFirstEntry, searchListener);
-                    }
-                }
+                        @Override
+                        public void onNetworkError(Exception e) {
+                            onError();
+                        }
 
-                @Override
-                public void onNetworkError(Exception e) {
-                    onError();
-                }
+                        @Override
+                        public void onMatrixError(MatrixError e) {
+                            onError();
+                        }
 
-                @Override
-                public void onMatrixError(MatrixError e) {
-                    onError();
-                }
-
-                @Override
-                public void onUnexpectedError(Exception e) {
-                    onError();
+                        @Override
+                        public void onUnexpectedError(Exception e) {
+                            onError();
+                        }
+                    });
                 }
             });
         } else {
-            searchAccountKnownContacts(theFirstEntry, searchListener);
+            searchAccountKnownContacts(theFirstEntry, new ArrayList<ParticipantAdapterItem>(), true, searchListener);
         }
     }
 
     /**
      * Search the known contacts from the account known users list.
      *
-     * @param theFirstEntry  the adapter first entry
-     * @param searchListener the listener
+     * @param theFirstEntry        the adapter first entry
+     * @param participantItemList  the participants initial list
+     * @param sortRoomContactsList true to sort the room contacts list
+     * @param searchListener       the listener
      */
-    private void searchAccountKnownContacts(final ParticipantAdapterItem theFirstEntry, final OnParticipantsSearchListener searchListener) {
-        List<ParticipantAdapterItem> participantItemList = new ArrayList<>();
-
+    private void searchAccountKnownContacts(final ParticipantAdapterItem theFirstEntry,
+                                            final List<ParticipantAdapterItem> participantItemList,
+                                            final boolean sortRoomContactsList,
+                                            final OnParticipantsSearchListener searchListener) {
         // the list is not anymore limited
         mKnownContactsLimited = false;
 
@@ -491,7 +524,7 @@ public class VectorParticipantsAdapter extends BaseExpandableListAdapter {
                         handler.post(new Runnable() {
                             @Override
                             public void run() {
-                                searchAccountKnownContacts(theFirstEntry, searchListener);
+                                searchAccountKnownContacts(theFirstEntry, participantItemList, sortRoomContactsList, searchListener);
                             }
                         });
                     }
@@ -523,20 +556,23 @@ public class VectorParticipantsAdapter extends BaseExpandableListAdapter {
             if (null == mContactsParticipants) {
                 Thread t = new Thread(new Runnable() {
                     public void run() {
-                        fillUsedMembersList();
-
-                        List<ParticipantAdapterItem> list = new ArrayList<>();
-                        addContacts(list);
-
-                        synchronized (LOG_TAG) {
-                            mContactsParticipants = list;
-                        }
-
-                        Handler handler = new Handler(Looper.getMainLooper());
-                        handler.post(new Runnable() {
+                        fillUsedMembersList(new SimpleApiCallback<Void>() {
                             @Override
-                            public void run() {
-                                refresh(theFirstEntry, searchListener);
+                            public void onSuccess(Void info) {
+                                List<ParticipantAdapterItem> list = new ArrayList<>();
+                                addContacts(list);
+
+                                synchronized (LOG_TAG) {
+                                    mContactsParticipants = list;
+                                }
+
+                                Handler handler = new Handler(Looper.getMainLooper());
+                                handler.post(new Runnable() {
+                                    @Override
+                                    public void run() {
+                                        refresh(theFirstEntry, searchListener);
+                                    }
+                                });
                             }
                         });
                     }
@@ -571,7 +607,7 @@ public class VectorParticipantsAdapter extends BaseExpandableListAdapter {
             }
         }
 
-        onKnownContactsSearchEnd(participantItemList, theFirstEntry, searchListener);
+        onKnownContactsSearchEnd(participantItemList, theFirstEntry, sortRoomContactsList, searchListener);
     }
 
     /**
@@ -580,9 +616,13 @@ public class VectorParticipantsAdapter extends BaseExpandableListAdapter {
      *
      * @param participantItemList the known contacts list
      * @param theFirstEntry       the adapter first entry
+     * @param sort                true to sort participantItemList
      * @param searchListener      the search listener
      */
-    private void onKnownContactsSearchEnd(List<ParticipantAdapterItem> participantItemList, final ParticipantAdapterItem theFirstEntry, final OnParticipantsSearchListener searchListener) {
+    private void onKnownContactsSearchEnd(List<ParticipantAdapterItem> participantItemList,
+                                          final ParticipantAdapterItem theFirstEntry,
+                                          final boolean sort,
+                                          final OnParticipantsSearchListener searchListener) {
         // ensure that the PIDs have been retrieved
         // it might have failed
         ContactsManager.getInstance().retrievePids();
@@ -656,7 +696,7 @@ public class VectorParticipantsAdapter extends BaseExpandableListAdapter {
         }
 
         if (!TextUtils.isEmpty(mPattern)) {
-            if (roomContactsList.size() > 0) {
+            if ((roomContactsList.size() > 0) && sort) {
                 Collections.sort(roomContactsList, mSortMethod);
             }
             mParticipantsListsList.add(roomContactsList);
@@ -718,7 +758,7 @@ public class VectorParticipantsAdapter extends BaseExpandableListAdapter {
             Collection<Room> rooms = mSession.getDataHandler().getStore().getRooms();
 
             for (Room room : rooms) {
-                if (room.getMembers().size() > 1) {
+                if (room.getNumberOfMembers() > 1) {
                     return true;
                 }
             }
@@ -798,10 +838,10 @@ public class VectorParticipantsAdapter extends BaseExpandableListAdapter {
     @Override
     public View getGroupView(final int groupPosition, final boolean isExpanded, View convertView, final ViewGroup parent) {
         if (null == convertView) {
-            convertView = this.mLayoutInflater.inflate(this.mHeaderLayoutResourceId, null);
+            convertView = mLayoutInflater.inflate(mHeaderLayoutResourceId, null);
         }
 
-        TextView sectionNameTxtView = (TextView) convertView.findViewById(R.id.people_header_text_view);
+        TextView sectionNameTxtView = convertView.findViewById(R.id.people_header_text_view);
 
         if (null != sectionNameTxtView) {
             final String title = getGroupTitle(groupPosition);
@@ -826,9 +866,10 @@ public class VectorParticipantsAdapter extends BaseExpandableListAdapter {
             return convertView;
         }
 
-        loadingView.setVisibility(groupPosition == mLocalContactsSectionPosition && !ContactsManager.getInstance().arePIDsRetrieved() ? View.VISIBLE : View.GONE);
+        loadingView.setVisibility(groupPosition == mLocalContactsSectionPosition && !ContactsManager.getInstance().arePIDsRetrieved() ?
+                View.VISIBLE : View.GONE);
 
-        ImageView imageView = (ImageView) convertView.findViewById(R.id.heading_image);
+        ImageView imageView = convertView.findViewById(R.id.heading_image);
         View matrixView = convertView.findViewById(R.id.people_header_matrix_contacts_layout);
 
         // reported by GA
@@ -838,12 +879,9 @@ public class VectorParticipantsAdapter extends BaseExpandableListAdapter {
         }
 
         if (groupPosition != mKnownContactsSectionPosition || mParticipantsListsList.get(groupPosition).size() > 0) {
-            if (isExpanded) {
-                imageView.setImageResource(R.drawable.ic_material_expand_less_black);
-            } else {
-                imageView.setImageResource(R.drawable.ic_material_expand_more_black);
-            }
 
+            int expandLogoRes = isExpanded ? R.drawable.ic_material_expand_more_black : R.drawable.ic_material_expand_less_black;
+            imageView.setImageResource(expandLogoRes);
             boolean groupShouldBeExpanded = isGroupExpanded(groupPosition);
 
             if (parent instanceof ExpandableListView) {
@@ -861,7 +899,7 @@ public class VectorParticipantsAdapter extends BaseExpandableListAdapter {
             matrixView.setVisibility(((groupPosition == mLocalContactsSectionPosition) && groupShouldBeExpanded) ? View.VISIBLE : View.GONE);
 
             // matrix user checkbox
-            CheckBox checkBox = (CheckBox) convertView.findViewById(R.id.contacts_filter_checkbox);
+            CheckBox checkBox = convertView.findViewById(R.id.contacts_filter_checkbox);
             checkBox.setChecked(PreferenceManager.getDefaultSharedPreferences(mContext).getBoolean(KEY_FILTER_MATRIX_USERS_ONLY, false));
 
             checkBox.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
@@ -883,7 +921,7 @@ public class VectorParticipantsAdapter extends BaseExpandableListAdapter {
                 @Override
                 public void onClick(View v) {
                     if (parent instanceof ExpandableListView) {
-                        if (isExpanded) {
+                        if (((ExpandableListView) parent).isGroupExpanded(groupPosition)) {
                             ((ExpandableListView) parent).collapseGroup(groupPosition);
                         } else {
                             ((ExpandableListView) parent).expandGroup(groupPosition);
@@ -921,10 +959,10 @@ public class VectorParticipantsAdapter extends BaseExpandableListAdapter {
         final ParticipantAdapterItem participant = list.get(childPosition);
 
         // retrieve the ui items
-        final ImageView thumbView = (ImageView) convertView.findViewById(R.id.filtered_list_avatar);
-        final TextView nameTextView = (TextView) convertView.findViewById(R.id.filtered_list_name);
-        final TextView statusTextView = (TextView) convertView.findViewById(R.id.filtered_list_status);
-        final ImageView matrixUserBadge = (ImageView) convertView.findViewById(R.id.filtered_list_matrix_user);
+        final ImageView thumbView = convertView.findViewById(R.id.filtered_list_avatar);
+        final TextView nameTextView = convertView.findViewById(R.id.filtered_list_name);
+        final TextView statusTextView = convertView.findViewById(R.id.filtered_list_status);
+        final ImageView matrixUserBadge = convertView.findViewById(R.id.filtered_list_matrix_user);
 
         // reported by GA
         // it should never happen but it happened...
@@ -947,7 +985,7 @@ public class VectorParticipantsAdapter extends BaseExpandableListAdapter {
             User user = null;
             MXSession matchedSession = null;
             // retrieve the linked user
-            ArrayList<MXSession> sessions = Matrix.getMXSessions(mContext);
+            List<MXSession> sessions = Matrix.getMXSessions(mContext);
 
             for (MXSession session : sessions) {
                 if (null == user) {
@@ -960,7 +998,7 @@ public class VectorParticipantsAdapter extends BaseExpandableListAdapter {
                 status = VectorUtils.getUserOnlineStatus(mContext, matchedSession, participant.mUserId, new SimpleApiCallback<Void>() {
                     @Override
                     public void onSuccess(Void info) {
-                        VectorParticipantsAdapter.this.refresh(mFirstEntry, null);
+                        refresh(mFirstEntry, null);
                     }
                 });
             }
@@ -968,7 +1006,7 @@ public class VectorParticipantsAdapter extends BaseExpandableListAdapter {
 
         // the contact defines a matrix user but there is no way to get more information (presence, avatar)
         if (participant.mContact != null) {
-            boolean isMatrixUserId = MXSession.PATTERN_CONTAIN_MATRIX_USER_IDENTIFIER.matcher(participant.mUserId).matches();
+            boolean isMatrixUserId = MXPatterns.isUserId(participant.mUserId);
             matrixUserBadge.setVisibility(isMatrixUserId ? View.VISIBLE : View.GONE);
 
             if (participant.mContact.getEmails().size() > 0) {
@@ -985,7 +1023,7 @@ public class VectorParticipantsAdapter extends BaseExpandableListAdapter {
         convertView.setAlpha(participant.mIsValid ? 1f : 0.5f);
 
         // the checkbox is not managed here
-        final CheckBox checkBox = (CheckBox) convertView.findViewById(R.id.filtered_list_checkbox);
+        final CheckBox checkBox = convertView.findViewById(R.id.filtered_list_checkbox);
         checkBox.setVisibility(View.GONE);
 
         final View addParticipantImageView = convertView.findViewById(R.id.filtered_list_add_button);

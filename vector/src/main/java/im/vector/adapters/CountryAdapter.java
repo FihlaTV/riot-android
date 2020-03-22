@@ -16,7 +16,6 @@
 
 package im.vector.adapters;
 
-import android.support.v7.widget.RecyclerView;
 import android.text.TextUtils;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -24,6 +23,8 @@ import android.view.ViewGroup;
 import android.widget.Filter;
 import android.widget.Filterable;
 import android.widget.TextView;
+
+import androidx.recyclerview.widget.RecyclerView;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -71,7 +72,9 @@ public class CountryAdapter extends RecyclerView.Adapter<CountryAdapter.CountryV
 
     @Override
     public void onBindViewHolder(CountryAdapter.CountryViewHolder viewHolder, int position) {
-        viewHolder.populateViews(mFilteredList.get(position));
+        if (position < mFilteredList.size()) {
+            viewHolder.populateViews(mFilteredList.get(position));
+        }
     }
 
     @Override
@@ -120,14 +123,13 @@ public class CountryAdapter extends RecyclerView.Adapter<CountryAdapter.CountryV
      */
 
     class CountryViewHolder extends RecyclerView.ViewHolder {
-
-        TextView vCountryName;
-        TextView vCallingCode;
+        final TextView vCountryName;
+        final TextView vCallingCode;
 
         private CountryViewHolder(final View itemView) {
             super(itemView);
-            vCountryName = (TextView) itemView.findViewById(R.id.country_name);
-            vCallingCode = (TextView) itemView.findViewById(R.id.country_calling_code);
+            vCountryName = itemView.findViewById(R.id.country_name);
+            vCallingCode = itemView.findViewById(R.id.country_calling_code);
         }
 
         private void populateViews(final CountryPhoneData country) {

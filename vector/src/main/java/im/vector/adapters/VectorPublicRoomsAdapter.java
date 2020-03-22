@@ -25,11 +25,11 @@ import android.widget.ArrayAdapter;
 import android.widget.ImageView;
 import android.widget.TextView;
 
+import org.matrix.androidsdk.MXSession;
+import org.matrix.androidsdk.rest.model.publicroom.PublicRoom;
+
 import im.vector.R;
 import im.vector.util.VectorUtils;
-
-import org.matrix.androidsdk.MXSession;
-import org.matrix.androidsdk.rest.model.PublicRoom;
 
 /**
  * An adapter which can display m.room.member content.
@@ -43,7 +43,8 @@ public class VectorPublicRoomsAdapter extends ArrayAdapter<PublicRoom> {
 
     /**
      * Constructor of a public rooms adapter.
-     * @param context the context
+     *
+     * @param context          the context
      * @param layoutResourceId the layout
      */
     public VectorPublicRoomsAdapter(Context context, int layoutResourceId, MXSession session) {
@@ -64,15 +65,15 @@ public class VectorPublicRoomsAdapter extends ArrayAdapter<PublicRoom> {
         String roomName = !TextUtils.isEmpty(publicRoom.name) ? publicRoom.name : VectorUtils.getPublicRoomDisplayName(publicRoom);
 
         // retrieve the UI items
-        ImageView avatarImageView = (ImageView)convertView.findViewById(R.id.room_avatar);
-        TextView roomNameTxtView = (TextView) convertView.findViewById(R.id.roomSummaryAdapter_roomName);
-        TextView roomMessageTxtView = (TextView) convertView.findViewById(R.id.roomSummaryAdapter_roomMessage);
+        ImageView avatarImageView = convertView.findViewById(R.id.adapter_item_recent_room_avatar);
+        TextView roomNameTxtView = convertView.findViewById(R.id.roomSummaryAdapter_roomName);
+        TextView roomMessageTxtView = convertView.findViewById(R.id.roomSummaryAdapter_roomMessage);
 
-        TextView timestampTxtView = (TextView) convertView.findViewById(R.id.roomSummaryAdapter_ts);
+        TextView timestampTxtView = convertView.findViewById(R.id.roomSummaryAdapter_ts);
         View separatorView = convertView.findViewById(R.id.recents_separator);
 
         // display the room avatar
-        VectorUtils.loadUserAvatar(mContext, mSession, avatarImageView, publicRoom.getAvatarUrl(),  publicRoom.roomId, roomName);
+        VectorUtils.loadUserAvatar(mContext, mSession, avatarImageView, publicRoom.avatarUrl, publicRoom.roomId, roomName);
 
         // set the topic
         roomMessageTxtView.setText(publicRoom.topic);
@@ -81,14 +82,9 @@ public class VectorPublicRoomsAdapter extends ArrayAdapter<PublicRoom> {
         roomNameTxtView.setText(roomName);
 
         // display the number of users
-        String usersText;
-        if (publicRoom.numJoinedMembers > 1) {
-            usersText = publicRoom.numJoinedMembers + " " + mContext.getResources().getString(R.string.users);
-        } else {
-            usersText = publicRoom.numJoinedMembers + " " + mContext.getResources().getString(R.string.user);
-        }
-
-        timestampTxtView.setText(usersText);
+        timestampTxtView.setText(mContext.getResources().getQuantityString(R.plurals.public_room_nb_users,
+                publicRoom.numJoinedMembers,
+                publicRoom.numJoinedMembers));
 
         // separator
         separatorView.setVisibility(View.VISIBLE);

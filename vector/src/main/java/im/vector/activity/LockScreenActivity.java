@@ -1,6 +1,7 @@
 /*
  * Copyright 2015 OpenMarket Ltd
  * Copyright 2017 Vector Creations Ltd
+ * Copyright 2018 New Vector Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,49 +18,52 @@
 
 package im.vector.activity;
 
-import android.app.Activity;
-import android.app.NotificationManager;
-import android.content.Context;
 import android.content.Intent;
 import android.content.res.Configuration;
-import android.os.Bundle;
 import android.text.TextUtils;
 import android.text.TextWatcher;
-
-import org.matrix.androidsdk.crypto.MXCryptoError;
-import org.matrix.androidsdk.util.Log;
-
+import android.view.KeyEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
 import android.view.WindowManager;
+import android.view.inputmethod.EditorInfo;
 import android.widget.EditText;
-import android.widget.ImageButton;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+import android.widget.Toast;
 
+import org.jetbrains.annotations.NotNull;
 import org.matrix.androidsdk.MXSession;
+import org.matrix.androidsdk.core.Log;
+import org.matrix.androidsdk.core.callback.ApiCallback;
+import org.matrix.androidsdk.core.model.MatrixError;
+import org.matrix.androidsdk.crypto.MXCryptoError;
 import org.matrix.androidsdk.data.Room;
-import org.matrix.androidsdk.rest.callback.ApiCallback;
 import org.matrix.androidsdk.rest.model.Event;
-import org.matrix.androidsdk.rest.model.MatrixError;
-import org.matrix.androidsdk.rest.model.Message;
+import org.matrix.androidsdk.rest.model.message.Message;
 
 import im.vector.Matrix;
 import im.vector.R;
+import im.vector.notifications.NotificationUtils;
+import im.vector.ui.themes.ActivityOtherThemes;
+import im.vector.util.ViewUtilKt;
 
 /**
  * LockScreenActivity is displayed within the notification to send a message without opening the application.
  */
-public class LockScreenActivity extends Activity { // do NOT extend from UC*Activity, we do not want to login on this screen!
-    public static final String LOG_TAG = "LockScreenActivity";
+public class LockScreenActivity extends VectorAppCompatActivity { // do NOT extend from UC*Activity, we do not want to login on this screen!
+    private static final String LOG_TAG = LockScreenActivity.class.getSimpleName();
 
     public static final String EXTRA_SENDER_NAME = "extra_sender_name";
     public static final String EXTRA_MESSAGE_BODY = "extra_chat_body";
     public static final String EXTRA_ROOM_ID = "extra_room_id";
-    public static final String EXTRA_MATRIX_ID = "extra_matrix_id";
+    private static final String EXTRA_MATRIX_ID = "extra_matrix_id";
 
     private static LockScreenActivity mLockScreenActivity = null;
+
+    private MXSession session;
+    private Room room;
 
     public static boolean isDisplayingALockScreenActivity() {
         return (null != mLockScreenActivity);
@@ -67,10 +71,33 @@ public class LockScreenActivity extends Activity { // do NOT extend from UC*Acti
 
     private LinearLayout mMainLayout;
 
-    @Override
-    public void onCreate(Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
+    private EditText mEditText;
 
+    @NotNull
+    @Override
+    public ActivityOtherThemes getOtherThemes() {
+        return ActivityOtherThemes.Lock.INSTANCE;
+    }
+
+    @Override
+    public int getLayoutRes() {
+        return R.layout.activity_lock_screen;
+    }
+
+    @Override
+    public void doBeforeSetContentView() {
+        Window window = getWindow();
+        window.addFlags(WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED);
+        window.addFlags(WindowManager.LayoutParams.FLAG_FORCE_NOT_FULLSCREEN);
+        window.addFlags(WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD);
+        // this will turn the screen on whilst honouring the screen timeout setting, so it will
+        // dim/turn off depending on user configured values.
+        window.addFlags(WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON);
+        requestWindowFeature(Window.FEATURE_NO_TITLE);
+    }
+
+    @Override
+    public void initUiAndData() {
         // keep theme ?
 
         // kill any running alert
@@ -79,19 +106,9 @@ public class LockScreenActivity extends Activity { // do NOT extend from UC*Acti
         }
 
         mLockScreenActivity = this;
-        Window window = getWindow();
-        window.addFlags(WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED);
-        window.addFlags(WindowManager.LayoutParams.FLAG_FORCE_NOT_FULLSCREEN);
-        window.addFlags(WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD);
-        // this will turn the screen on whilst honouring the screen timeout setting, so it will
-        // dim/turn off depending on user configured values.
-        window.addFlags(WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON);
-        this.requestWindowFeature(Window.FEATURE_NO_TITLE);
-        setContentView(R.layout.activity_lock_screen);
 
         // remove any pending notifications
-        NotificationManager notificationsManager = (NotificationManager) this.getSystemService(Context.NOTIFICATION_SERVICE);
-        notificationsManager.cancelAll();
+        NotificationUtils.INSTANCE.cancelAllNotifications(this);
 
         Intent intent = getIntent();
 
@@ -112,23 +129,24 @@ public class LockScreenActivity extends Activity { // do NOT extend from UC*Acti
             matrixId = intent.getStringExtra(EXTRA_MATRIX_ID);
         }
 
-        final MXSession session = Matrix.getInstance(getApplicationContext()).getSession(matrixId);
-        final Room room = session.getDataHandler().getRoom(roomId);
+        session = Matrix.getInstance(getApplicationContext()).getSession(matrixId);
+        room = session.getDataHandler().getRoom(roomId);
 
         // display the room name as title
-        setTitle(room.getName(session.getCredentials().userId));
+        String roomName = room.getRoomDisplayName(this);
+        setTitle(roomName);
 
-        ((TextView) findViewById(R.id.lock_screen_sender)).setText(intent.getStringExtra(EXTRA_SENDER_NAME) + " : ");
+        ((TextView) findViewById(R.id.lock_screen_sender)).setText(getString(R.string.generic_label, intent.getStringExtra(EXTRA_SENDER_NAME)));
         ((TextView) findViewById(R.id.lock_screen_body)).setText(intent.getStringExtra(EXTRA_MESSAGE_BODY));
-        ((TextView) findViewById(R.id.lock_screen_room_name)).setText(room.getName(session.getCredentials().userId));
-        final ImageButton sendButton = (ImageButton) findViewById(R.id.lock_screen_sendbutton);
-        final EditText editText = (EditText) findViewById(R.id.lock_screen_edittext);
+        ((TextView) findViewById(R.id.lock_screen_room_name)).setText(roomName);
+        final View sendButton = findViewById(R.id.lock_screen_sendbutton);
+        mEditText = findViewById(R.id.lock_screen_edittext);
 
         // disable send button
         sendButton.setEnabled(false);
-        sendButton.setAlpha(CommonActivityUtils.UTILS_OPACITY_HALF);
+        sendButton.setAlpha(ViewUtilKt.UTILS_OPACITY_HALF);
 
-        editText.addTextChangedListener(new TextWatcher() {
+        mEditText.addTextChangedListener(new TextWatcher() {
             @Override
             public void afterTextChanged(android.text.Editable s) {
             }
@@ -140,70 +158,86 @@ public class LockScreenActivity extends Activity { // do NOT extend from UC*Acti
             @Override
             public void onTextChanged(CharSequence s, int start, int before, int count) {
                 // disable/enable send button according to input text content
-                String inputText = editText.getText().toString();
-                if (TextUtils.isEmpty(inputText)) {
+                if (TextUtils.isEmpty(s)) {
                     sendButton.setEnabled(false);
-                    sendButton.setAlpha(CommonActivityUtils.UTILS_OPACITY_HALF);
+                    sendButton.setAlpha(ViewUtilKt.UTILS_OPACITY_HALF);
                 } else {
                     sendButton.setEnabled(true);
-                    sendButton.setAlpha(CommonActivityUtils.UTILS_OPACITY_NONE);
+                    sendButton.setAlpha(ViewUtilKt.UTILS_OPACITY_FULL);
                 }
             }
         });
 
+        mEditText.setOnEditorActionListener(
+                new TextView.OnEditorActionListener() {
+                    @Override
+                    public boolean onEditorAction(TextView view, int actionId, KeyEvent event) {
+                        int imeActionId = actionId & EditorInfo.IME_MASK_ACTION;
+
+                        if (EditorInfo.IME_ACTION_DONE == imeActionId || EditorInfo.IME_ACTION_SEND == imeActionId) {
+                            if (!TextUtils.isEmpty(mEditText.getText().toString())) {
+                                sendMessage();
+                                return true;
+                            }
+                        }
+
+                        return false;
+                    }
+                }
+        );
+
         sendButton.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
-                Log.d(LOG_TAG, "Send a message ...");
-
-                String body = editText.getText().toString();
-
-                Message message = new Message();
-                message.msgtype = Message.MSGTYPE_TEXT;
-                message.body = body;
-
-                final Event event = new Event(message, session.getCredentials().userId, roomId);
-                room.storeOutgoingEvent(event);
-                room.sendEvent(event, new ApiCallback<Void>() {
-                    @Override
-                    public void onSuccess(Void info) {
-                        Log.d(LOG_TAG, "Send message : onSuccess ");
-                    }
-
-                    @Override
-                    public void onNetworkError(Exception e) {
-                        Log.d(LOG_TAG, "Send message : onNetworkError " + e.getMessage());
-                        CommonActivityUtils.displayToast(LockScreenActivity.this, e.getLocalizedMessage());
-                    }
-
-                    @Override
-                    public void onMatrixError(MatrixError e) {
-                        Log.d(LOG_TAG, "Send message : onMatrixError " + e.getMessage());
-
-                        if (e instanceof MXCryptoError) {
-                            CommonActivityUtils.displayToast(LockScreenActivity.this, ((MXCryptoError) e).getDetailedErrorDescription());
-                        } else {
-                            CommonActivityUtils.displayToast(LockScreenActivity.this, e.getLocalizedMessage());
-                        }
-                    }
-
-                    @Override
-                    public void onUnexpectedError(Exception e) {
-                        Log.d(LOG_TAG, "Send message : onUnexpectedError " + e.getMessage());
-                        CommonActivityUtils.displayToast(LockScreenActivity.this, e.getLocalizedMessage());
-                    }
-                });
-
-                LockScreenActivity.this.runOnUiThread(new Runnable() {
-                    @Override
-                    public void run() {
-                        finish();
-                    }
-                });
+                sendMessage();
             }
         });
 
-        mMainLayout = (LinearLayout) findViewById(R.id.lock_main_layout);
+        mMainLayout = findViewById(R.id.lock_main_layout);
+    }
+
+    private void sendMessage() {
+        Log.d(LOG_TAG, "Send a message ...");
+
+        String body = mEditText.getText().toString();
+
+        Message message = new Message();
+        message.msgtype = Message.MSGTYPE_TEXT;
+        message.body = body;
+
+        final Event event = new Event(message, session.getCredentials().userId, room.getRoomId());
+        room.storeOutgoingEvent(event);
+        room.sendEvent(event, new ApiCallback<Void>() {
+            @Override
+            public void onSuccess(Void info) {
+                Log.d(LOG_TAG, "Send message : onSuccess ");
+            }
+
+            @Override
+            public void onNetworkError(Exception e) {
+                Log.d(LOG_TAG, "Send message : onNetworkError " + e.getMessage(), e);
+                Toast.makeText(LockScreenActivity.this, e.getLocalizedMessage(), Toast.LENGTH_SHORT).show();
+            }
+
+            @Override
+            public void onMatrixError(MatrixError e) {
+                Log.d(LOG_TAG, "Send message : onMatrixError " + e.getMessage());
+
+                if (e instanceof MXCryptoError) {
+                    Toast.makeText(LockScreenActivity.this, ((MXCryptoError) e).getDetailedErrorDescription(), Toast.LENGTH_SHORT).show();
+                } else {
+                    Toast.makeText(LockScreenActivity.this, e.getLocalizedMessage(), Toast.LENGTH_SHORT).show();
+                }
+            }
+
+            @Override
+            public void onUnexpectedError(Exception e) {
+                Log.d(LOG_TAG, "Send message : onUnexpectedError " + e.getMessage(), e);
+                Toast.makeText(LockScreenActivity.this, e.getLocalizedMessage(), Toast.LENGTH_SHORT).show();
+            }
+        });
+
+        finish();
     }
 
     private void refreshMainLayout() {

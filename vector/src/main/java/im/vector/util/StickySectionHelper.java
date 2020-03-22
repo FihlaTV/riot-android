@@ -1,5 +1,6 @@
 /*
  * Copyright 2017 Vector Creations Ltd
+ * Copyright 2018 New Vector Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,13 +17,15 @@
 
 package im.vector.util;
 
-import android.support.v7.widget.LinearLayoutManager;
-import android.support.v7.widget.RecyclerView;
-import org.matrix.androidsdk.util.Log;
 import android.util.Pair;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewParent;
+
+import androidx.recyclerview.widget.LinearLayoutManager;
+import androidx.recyclerview.widget.RecyclerView;
+
+import org.matrix.androidsdk.core.Log;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -34,10 +37,10 @@ public class StickySectionHelper extends RecyclerView.OnScrollListener implement
 
     private final String LOG_TAG = StickySectionHelper.class.getSimpleName();
 
-    private RecyclerView mRecyclerView;
-    private LinearLayoutManager mLayoutManager;
+    private final RecyclerView mRecyclerView;
+    private final LinearLayoutManager mLayoutManager;
 
-    private List<Pair<Integer, SectionView>> mSectionViews = new ArrayList<>();
+    private final List<Pair<Integer, SectionView>> mSectionViews = new ArrayList<>();
 
     private int mHeaderBottom = 0;
 
@@ -52,7 +55,8 @@ public class StickySectionHelper extends RecyclerView.OnScrollListener implement
 
         //Initialize the sticky views
         for (final Pair<Integer, AdapterSection> section : sections) {
-            final SectionView sectionView = new SectionView(mRecyclerView.getContext(), section.second);
+            final SectionView sectionView = new SectionView(mRecyclerView.getContext());
+            sectionView.setup(section.second);
             sectionView.setOnClickListener(new View.OnClickListener() {
                 @Override
                 public void onClick(View v) {
@@ -133,7 +137,7 @@ public class StickySectionHelper extends RecyclerView.OnScrollListener implement
      *
      * @param bottom new bottom
      */
-    public void setBottom(int bottom) {
+    private void setBottom(int bottom) {
         mFooterTop = bottom;
         mFooterBottom = bottom;
     }
@@ -188,7 +192,8 @@ public class StickySectionHelper extends RecyclerView.OnScrollListener implement
                 SectionView current = sectionViews.get(i).second;
                 //SectionView next = i + 1 < sectionViews.size() ? sectionViews.get(i + 1).second : null;
 
-                current.measure(View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED), View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+                current.measure(View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
+                        View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
                 int sectionHeight = current.getStickyHeaderHeight();
                 if (current.getSection().shouldBeHidden()) {
                     current.setVisibility(View.GONE);
@@ -209,11 +214,12 @@ public class StickySectionHelper extends RecyclerView.OnScrollListener implement
                 SectionView current = sectionViews.get(i).second;
                 //SectionView next = i + 1 < sectionViews.size() ? sectionViews.get(i + 1).second : null;
 
-                current.measure(View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED), View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+                current.measure(View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
+                        View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
                 int sectionHeight = current.getStickyHeaderHeight();
                 current.setFooterTop(mFooterTop - current.getStickyHeaderHeight());
                 current.setFooterBottom(mFooterTop);
-                if(!current.getSection().shouldBeHidden()){
+                if (!current.getSection().shouldBeHidden()) {
                     mFooterTop -= sectionHeight;
                 }
             }
@@ -281,13 +287,11 @@ public class StickySectionHelper extends RecyclerView.OnScrollListener implement
      * Remove the given view from its parent
      *
      * @param view to remove from its parent
-     * @return parent
      */
-    private static ViewGroup removeViewFromParent(final View view) {
+    private static void removeViewFromParent(final View view) {
         final ViewParent parent = view.getParent();
         if (parent instanceof ViewGroup) {
             ((ViewGroup) parent).removeView(view);
         }
-        return ((ViewGroup) parent);
     }
 }

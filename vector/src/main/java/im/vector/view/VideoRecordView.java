@@ -1,12 +1,12 @@
-/* 
+/*
  * Copyright 2014 OpenMarket Ltd
- * 
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *     http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -52,7 +52,7 @@ public class VideoRecordView extends RelativeLayout {
         View.inflate(getContext(), im.vector.R.layout.video_record_view, this);
 
         // retrieve the UI items
-        mVideoRecordProgressView = (VideoRecordProgressView) findViewById(im.vector.R.id.video_record_progress_view);
+        mVideoRecordProgressView = findViewById(im.vector.R.id.video_record_progress_view);
     }
 
     /**
@@ -65,7 +65,7 @@ public class VideoRecordView extends RelativeLayout {
     /**
      * Stop the animation
      */
-    public void stopAnimation() {
+    private void stopAnimation() {
         mVideoRecordProgressView.stopAnimation();
     }
 

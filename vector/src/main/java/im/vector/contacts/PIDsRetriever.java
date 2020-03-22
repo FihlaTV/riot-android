@@ -1,6 +1,7 @@
 /*
  * Copyright 2015 OpenMarket Ltd
  * Copyright 2017 Vector Creations Ltd
+ * Copyright 2018 New Vector Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,12 +21,14 @@ import android.content.Context;
 import android.os.Handler;
 import android.os.Looper;
 import android.text.TextUtils;
-import org.matrix.androidsdk.util.Log;
 
 import org.matrix.androidsdk.MXSession;
-import org.matrix.androidsdk.rest.callback.ApiCallback;
-import org.matrix.androidsdk.rest.model.MatrixError;
-import org.matrix.androidsdk.rest.model.ThreePid;
+import org.matrix.androidsdk.core.Log;
+import org.matrix.androidsdk.core.callback.ApiCallback;
+import org.matrix.androidsdk.core.model.MatrixError;
+import org.matrix.androidsdk.features.identityserver.IdentityServerNotConfiguredException;
+import org.matrix.androidsdk.features.terms.TermsNotSignedException;
+import org.matrix.androidsdk.rest.model.pid.ThreePid;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -41,7 +44,7 @@ import im.vector.Matrix;
  * retrieve the contact matrix IDs
  */
 public class PIDsRetriever {
-    private static final String LOG_TAG = "PIDsRetriever";
+    private static final String LOG_TAG = PIDsRetriever.class.getSimpleName();
 
     public interface PIDsRetrieverListener {
         /**
@@ -53,6 +56,10 @@ public class PIDsRetriever {
          * Called the PIDs retrieval fails.
          */
         void onFailure(String accountId);
+
+        void onIdentityServerTermsNotSigned(String token);
+
+        void onNoIdentityServer();
     }
 
     // current instance
@@ -70,13 +77,14 @@ public class PIDsRetriever {
     }
 
     // MatrixID <-> medium
-    private final HashMap<String, Contact.MXID> mMatrixIdsByMedium = new HashMap<>();
+    private final Map<String, Contact.MXID> mMatrixIdsByMedium = new HashMap<>();
 
     // listeners list
     private PIDsRetrieverListener mListener = null;
 
     /**
      * Set the listener.
+     *
      * @param listener the listener.
      */
     public void setPIDsRetrieverListener(PIDsRetrieverListener listener) {
@@ -98,7 +106,9 @@ public class PIDsRetriever {
         mListener = null;
     }
 
-    /**ce (email, phonenumber...)
+    /**
+     * ce (email, phonenumber...)
+     *
      * @param item the item to retrieve
      * @return the linked MXID if it exists
      */
@@ -119,6 +129,7 @@ public class PIDsRetriever {
 
     /**
      * Retrieve the matrix ids for a list of contacts with the local cache.
+     *
      * @param contacts the contacts list
      * @return the medium addresses which are not cached.
      */
@@ -165,13 +176,14 @@ public class PIDsRetriever {
      * Retrieve the matrix IDs from the contact fields (only emails are supported by now).
      * Update the contact fields with the found Matrix Ids.
      * The update could require some remote requests : they are done only localUpdateOnly is false.
-     * @param context the context.
-     * @param contacts the contacts list.
+     *
+     * @param context         the context.
+     * @param contacts        the contacts list.
      * @param localUpdateOnly true to only support refresh from local information.
      * @return true if the matrix Ids have been retrieved
      */
     public void retrieveMatrixIds(final Context context, final List<Contact> contacts, final boolean localUpdateOnly) {
-        Log.d(LOG_TAG, String.format("retrieveMatrixIds starts for %d contacts", contacts == null ? 0 : contacts.size()));
+        Log.d(LOG_TAG, "retrieveMatrixIds starts for " + (contacts == null ? 0 : contacts.size()) + " contacts");
         // sanity checks
         if ((null == contacts) || (0 == contacts.size())) {
             if (null != mListener) {
@@ -217,9 +229,9 @@ public class PIDsRetriever {
                 session.lookup3Pids(fRequestedMediums, medias, new ApiCallback<List<String>>() {
                     @Override
                     public void onSuccess(final List<String> pids) {
-                        Log.e(LOG_TAG, "lookup3Pids success " + pids.size());
+                        Log.d(LOG_TAG, "lookup3Pids success " + pids.size());
                         // update the local cache
-                        for(int index = 0; index < fRequestedMediums.size(); index++) {
+                        for (int index = 0; index < fRequestedMediums.size(); index++) {
                             String medium = fRequestedMediums.get(index);
                             String mxId = pids.get(index);
 
@@ -262,7 +274,17 @@ public class PIDsRetriever {
 
                     @Override
                     public void onUnexpectedError(Exception e) {
-                        onError(e.getMessage());
+                        if (e instanceof TermsNotSignedException) {
+                            if (null != mListener) {
+                                mListener.onIdentityServerTermsNotSigned(((TermsNotSignedException) e).getToken());
+                            }
+                        } else if (e instanceof IdentityServerNotConfiguredException) {
+                            if (null != mListener) {
+                                mListener.onNoIdentityServer();
+                            }
+                        } else {
+                            onError(e.getMessage());
+                        }
                     }
                 });
             }

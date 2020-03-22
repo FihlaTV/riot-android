@@ -1,6 +1,7 @@
 /*
  * Copyright 2015 OpenMarket Ltd
  * Copyright 2017 Vector Creations Ltd
+ * Copyright 2018 New Vector Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -27,18 +28,17 @@ import android.widget.TextView;
 
 import org.matrix.androidsdk.MXSession;
 import org.matrix.androidsdk.adapters.MessageRow;
+import org.matrix.androidsdk.core.JsonUtils;
+import org.matrix.androidsdk.crypto.model.crypto.EncryptedFileInfo;
 import org.matrix.androidsdk.data.Room;
-import org.matrix.androidsdk.db.MXMediasCache;
-import org.matrix.androidsdk.rest.model.EncryptedFileInfo;
+import org.matrix.androidsdk.db.MXMediaCache;
 import org.matrix.androidsdk.rest.model.Event;
-import org.matrix.androidsdk.rest.model.FileMessage;
-import org.matrix.androidsdk.rest.model.ImageMessage;
-import org.matrix.androidsdk.rest.model.Message;
-import org.matrix.androidsdk.rest.model.VideoMessage;
-import org.matrix.androidsdk.util.JsonUtils;
+import org.matrix.androidsdk.rest.model.message.FileMessage;
+import org.matrix.androidsdk.rest.model.message.ImageMessage;
+import org.matrix.androidsdk.rest.model.message.Message;
+import org.matrix.androidsdk.rest.model.message.VideoMessage;
 
 import im.vector.R;
-import im.vector.util.VectorUtils;
 
 /**
  * An adapter which display a files search result
@@ -46,9 +46,9 @@ import im.vector.util.VectorUtils;
 public class VectorSearchFilesListAdapter extends VectorMessagesAdapter {
 
     // display the room name in the result view
-    private boolean mDisplayRoomName;
+    private final boolean mDisplayRoomName;
 
-    public VectorSearchFilesListAdapter(MXSession session, Context context, boolean displayRoomName, MXMediasCache mediasCache) {
+    public VectorSearchFilesListAdapter(MXSession session, Context context, boolean displayRoomName, MXMediaCache mediasCache) {
         super(session, context, mediasCache);
 
         mDisplayRoomName = displayRoomName;
@@ -87,6 +87,9 @@ public class VectorSearchFilesListAdapter extends VectorMessagesAdapter {
 
             if (null == thumbUrl) {
                 thumbUrl = imageMessage.getUrl();
+                encryptedFileInfo = imageMessage.file;
+            } else if (imageMessage.info != null) {
+                encryptedFileInfo = imageMessage.info.thumbnail_file;
             }
 
             if (null != imageMessage.info) {
@@ -97,10 +100,6 @@ public class VectorSearchFilesListAdapter extends VectorMessagesAdapter {
                 avatarId = R.drawable.filetype_gif;
             } else {
                 avatarId = R.drawable.filetype_image;
-            }
-
-            if (null != imageMessage.info) {
-                encryptedFileInfo = imageMessage.info.thumbnail_file;
             }
         } else if (Message.MSGTYPE_VIDEO.equals(message.msgtype)) {
             VideoMessage videoMessage = JsonUtils.toVideoMessage(event.getContent());
@@ -128,7 +127,7 @@ public class VectorSearchFilesListAdapter extends VectorMessagesAdapter {
         }
 
         // thumbnail
-        ImageView thumbnailView = (ImageView)convertView.findViewById(R.id.file_search_thumbnail);
+        ImageView thumbnailView = convertView.findViewById(R.id.file_search_thumbnail);
 
         // default avatar
         thumbnailView.setImageResource(avatarId);
@@ -137,33 +136,34 @@ public class VectorSearchFilesListAdapter extends VectorMessagesAdapter {
             // detect if the media is encrypted
             if (null == encryptedFileInfo) {
                 int size = getContext().getResources().getDimensionPixelSize(R.dimen.member_list_avatar_size);
-                mSession.getMediasCache().loadAvatarThumbnail(mSession.getHomeserverConfig(), thumbnailView, thumbUrl, size);
+                mSession.getMediaCache().loadAvatarThumbnail(mSession.getHomeServerConfig(), thumbnailView, thumbUrl, size);
             } else {
-                mSession.getMediasCache().loadBitmap(mSession.getHomeserverConfig(), thumbnailView, thumbUrl, 0, ExifInterface.ORIENTATION_UNDEFINED, null, encryptedFileInfo);
+                mSession.getMediaCache().loadBitmap(mSession.getHomeServerConfig(),
+                        thumbnailView, thumbUrl, 0, ExifInterface.ORIENTATION_UNDEFINED, null, encryptedFileInfo);
             }
         }
 
         // filename
-        TextView filenameTextView = (TextView)convertView.findViewById(R.id.file_search_filename);
+        TextView filenameTextView = convertView.findViewById(R.id.file_search_filename);
         filenameTextView.setText(message.body);
 
         // room and date&time
-        TextView roomNameTextView = (TextView)convertView.findViewById(R.id.file_search_room_name);
+        TextView roomNameTextView = convertView.findViewById(R.id.file_search_room_name);
         String info = "";
         if (mDisplayRoomName) {
             Room room = mSession.getDataHandler().getStore().getRoom(event.roomId);
 
             if (null != room) {
-                info += VectorUtils.getRoomDisplayName(mContext, mSession, room);
+                info += room.getRoomDisplayName(mContext);
                 info += " - ";
             }
         }
 
-        info +=  AdapterUtils.tsToString(mContext, event.getOriginServerTs(), false);
+        info += AdapterUtils.tsToString(mContext, event.getOriginServerTs(), false);
         roomNameTextView.setText(info);
 
         // file size
-        TextView fileSizeTextView = (TextView)convertView.findViewById(R.id.search_file_size);
+        TextView fileSizeTextView = convertView.findViewById(R.id.search_file_size);
 
         if ((null != mediaSize) && (mediaSize > 1)) {
             fileSizeTextView.setText(Formatter.formatFileSize(mContext, mediaSize));

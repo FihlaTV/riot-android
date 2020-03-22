@@ -18,13 +18,14 @@ package im.vector;
 
 import android.app.Activity;
 import android.content.Intent;
-import android.support.annotation.IntDef;
-import android.support.annotation.NonNull;
 import android.text.Editable;
 import android.text.TextUtils;
 import android.text.TextWatcher;
 import android.view.View;
 import android.widget.EditText;
+
+import androidx.annotation.IntDef;
+import androidx.annotation.NonNull;
 
 import com.google.i18n.phonenumbers.NumberParseException;
 import com.google.i18n.phonenumbers.PhoneNumberUtil;
@@ -46,13 +47,13 @@ public class PhoneNumberHandler implements TextWatcher, View.OnFocusChangeListen
     @interface DisplayMode {
     }
 
-    public static final int DISPLAY_COUNTRY_FULL_NAME = 0;
+    private static final int DISPLAY_COUNTRY_FULL_NAME = 0;
     public static final int DISPLAY_COUNTRY_ISO_CODE = 1;
 
     private EditText mPhoneNumberInput;
     private EditText mCountryCodeInput;
 
-    private int mDisplayMode;
+    private final int mDisplayMode;
 
     // Ex "FR"
     private String mCountryCode;
@@ -66,8 +67,10 @@ public class PhoneNumberHandler implements TextWatcher, View.OnFocusChangeListen
      * *********************************************************************************************
      */
 
-    public PhoneNumberHandler(@NonNull final Activity activity, @NonNull final EditText phoneNumberInput,
-                              @NonNull final EditText countryCodeInput, @DisplayMode final int displayMode,
+    public PhoneNumberHandler(@NonNull final Activity activity,
+                              @NonNull final EditText phoneNumberInput,
+                              @NonNull final EditText countryCodeInput,
+                              @DisplayMode final int displayMode,
                               final int requestCode) {
         mPhoneNumberInput = phoneNumberInput;
         mCountryCodeInput = countryCodeInput;
@@ -136,15 +139,6 @@ public class PhoneNumberHandler implements TextWatcher, View.OnFocusChangeListen
                 initPhoneWithPrefix();
             }
         }
-    }
-
-    /**
-     * Check whether the current phone number is a potential phone number
-     *
-     * @return true if potential phone number
-     */
-    public boolean isValidPhoneNumber() {
-        return mCurrentPhoneNumber != null && PhoneNumberUtil.getInstance().isPossibleNumber(mCurrentPhoneNumber);
     }
 
     /**

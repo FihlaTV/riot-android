@@ -1,5 +1,6 @@
 /*
  * Copyright 2017 Vector Creations Ltd
+ * Copyright 2018 New Vector Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,59 +17,58 @@
 
 package im.vector.fragments;
 
+import android.app.Activity;
 import android.content.Intent;
-import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.os.AsyncTask;
 import android.os.Bundle;
 import android.os.Looper;
-import android.preference.PreferenceManager;
-import android.support.annotation.NonNull;
-import android.support.v4.content.ContextCompat;
-import android.support.v7.widget.DividerItemDecoration;
-import android.support.v7.widget.LinearLayoutManager;
-import android.support.v7.widget.RecyclerView;
 import android.text.TextUtils;
-import android.view.LayoutInflater;
 import android.view.View;
-import android.view.ViewGroup;
 import android.widget.CheckBox;
 import android.widget.CompoundButton;
 import android.widget.Filter;
 
-import org.matrix.androidsdk.MXDataHandler;
+import androidx.annotation.NonNull;
+import androidx.core.content.ContextCompat;
+import androidx.preference.PreferenceManager;
+import androidx.recyclerview.widget.DividerItemDecoration;
+import androidx.recyclerview.widget.LinearLayoutManager;
+import androidx.recyclerview.widget.RecyclerView;
+
+import org.matrix.androidsdk.core.Log;
+import org.matrix.androidsdk.core.callback.ApiCallback;
+import org.matrix.androidsdk.core.model.MatrixError;
 import org.matrix.androidsdk.data.Room;
-import org.matrix.androidsdk.data.RoomTag;
-import org.matrix.androidsdk.data.store.IMXStore;
+import org.matrix.androidsdk.features.terms.TermsManager;
 import org.matrix.androidsdk.listeners.MXEventListener;
-import org.matrix.androidsdk.rest.callback.ApiCallback;
 import org.matrix.androidsdk.rest.model.Event;
-import org.matrix.androidsdk.rest.model.MatrixError;
-import org.matrix.androidsdk.rest.model.Search.SearchUsersResponse;
 import org.matrix.androidsdk.rest.model.User;
-import org.matrix.androidsdk.util.Log;
+import org.matrix.androidsdk.rest.model.search.SearchUsersResponse;
 
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
 
 import butterknife.BindView;
 import im.vector.R;
-import im.vector.activity.CommonActivityUtils;
+import im.vector.activity.ReviewTermsActivity;
 import im.vector.activity.VectorMemberDetailsActivity;
+import im.vector.activity.util.RequestCodesKt;
 import im.vector.adapters.ParticipantAdapterItem;
 import im.vector.adapters.PeopleAdapter;
 import im.vector.contacts.Contact;
 import im.vector.contacts.ContactsManager;
 import im.vector.contacts.PIDsRetriever;
+import im.vector.ui.themes.ThemeUtils;
+import im.vector.util.HomeRoomsViewModel;
+import im.vector.util.PermissionsToolsKt;
 import im.vector.util.VectorUtils;
 import im.vector.view.EmptyViewItemDecoration;
 import im.vector.view.SimpleDividerItemDecoration;
 
 public class PeopleFragment extends AbsHomeFragment implements ContactsManager.ContactsManagerListener, AbsHomeFragment.OnRoomChangedListener {
-
     private static final String LOG_TAG = PeopleFragment.class.getSimpleName();
 
     private static final String MATRIX_USER_ONLY_PREF_KEY = "MATRIX_USER_ONLY_PREF_KEY";
@@ -78,18 +78,19 @@ public class PeopleFragment extends AbsHomeFragment implements ContactsManager.C
     @BindView(R.id.recyclerview)
     RecyclerView mRecycler;
 
-    CheckBox mMatrixUserOnlyCheckbox;
+    private CheckBox mMatrixUserOnlyCheckbox;
 
     private PeopleAdapter mAdapter;
 
     private List<Room> mDirectChats = new ArrayList<>();
-    private List<ParticipantAdapterItem> mLocalContacts = new ArrayList<>();
+    private final List<ParticipantAdapterItem> mLocalContacts = new ArrayList<>();
     // the known contacts are not sorted
-    private List<ParticipantAdapterItem> mKnownContacts = new ArrayList<>();
+    private final List<ParticipantAdapterItem> mKnownContacts = new ArrayList<>();
 
     // way to detect that the contacts list has been updated
     private int mContactsSnapshotSession = -1;
     private MXEventListener mEventsListener;
+
 
     /*
      * *********************************************************************************************
@@ -108,8 +109,8 @@ public class PeopleFragment extends AbsHomeFragment implements ContactsManager.C
      */
 
     @Override
-    public View onCreateView(final LayoutInflater inflater, final ViewGroup container, final Bundle savedInstanceState) {
-        return inflater.inflate(R.layout.fragment_people, container, false);
+    public int getLayoutResId() {
+        return R.layout.fragment_people;
     }
 
     @Override
@@ -123,8 +124,11 @@ public class PeopleFragment extends AbsHomeFragment implements ContactsManager.C
             }
         };
 
-        mPrimaryColor = ContextCompat.getColor(getActivity(), R.color.tab_people);
-        mSecondaryColor = ContextCompat.getColor(getActivity(), R.color.tab_people_secondary);
+        mPrimaryColor = ThemeUtils.INSTANCE.getColor(getActivity(), R.attr.vctr_tab_home);
+        mSecondaryColor = ThemeUtils.INSTANCE.getColor(getActivity(), R.attr.vctr_tab_home_secondary);
+
+        mFabColor = ContextCompat.getColor(getActivity(), R.color.tab_people);
+        mFabPressedColor = ContextCompat.getColor(getActivity(), R.color.tab_people_secondary);
 
         initViews();
 
@@ -135,10 +139,18 @@ public class PeopleFragment extends AbsHomeFragment implements ContactsManager.C
         mAdapter.onFilterDone(mCurrentFilter);
 
         if (!ContactsManager.getInstance().isContactBookAccessRequested()) {
-            CommonActivityUtils.checkPermissions(CommonActivityUtils.REQUEST_CODE_PERMISSION_MEMBERS_SEARCH, this);
+            PermissionsToolsKt.checkPermissions(PermissionsToolsKt.PERMISSIONS_FOR_MEMBERS_SEARCH, this, PermissionsToolsKt.PERMISSION_REQUEST_CODE);
         }
 
         initKnownContacts();
+    }
+
+    @Override
+    public void onActivityResult(int requestCode, int resultCode, Intent data) {
+        if (requestCode == RequestCodesKt.TERMS_REQUEST_CODE && resultCode == Activity.RESULT_OK) {
+            // Launch again the request
+            ContactsManager.getInstance().retrievePids();
+        }
     }
 
     @Override
@@ -146,10 +158,6 @@ public class PeopleFragment extends AbsHomeFragment implements ContactsManager.C
         super.onResume();
         mSession.getDataHandler().addListener(mEventsListener);
         ContactsManager.getInstance().addListener(this);
-        // Direct chats
-        initDirectChatsData();
-        initDirectChatsViews();
-
         // Local address book
         initContactsData();
         initContactsViews();
@@ -176,7 +184,7 @@ public class PeopleFragment extends AbsHomeFragment implements ContactsManager.C
 
     @Override
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
-        if (requestCode == CommonActivityUtils.REQUEST_CODE_PERMISSION_MEMBERS_SEARCH) {
+        if (requestCode == PermissionsToolsKt.PERMISSION_REQUEST_CODE) {
             if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
                 ContactsManager.getInstance().refreshLocalContactsSnapshot();
             } else {
@@ -238,13 +246,13 @@ public class PeopleFragment extends AbsHomeFragment implements ContactsManager.C
      */
     private void initViews() {
         int margin = (int) getResources().getDimension(R.dimen.item_decoration_left_margin);
-        mRecycler.setLayoutManager(new LinearLayoutManager(getActivity(), LinearLayoutManager.VERTICAL, false));
+        mRecycler.setLayoutManager(new LinearLayoutManager(getActivity(), RecyclerView.VERTICAL, false));
         mRecycler.addItemDecoration(new SimpleDividerItemDecoration(getActivity(), DividerItemDecoration.VERTICAL, margin));
         mRecycler.addItemDecoration(new EmptyViewItemDecoration(getActivity(), DividerItemDecoration.VERTICAL, 40, 16, 14));
         mAdapter = new PeopleAdapter(getActivity(), new PeopleAdapter.OnSelectItemListener() {
             @Override
             public void onSelectItem(Room room, int position) {
-               openRoom(room);
+                openRoom(room);
             }
 
             @Override
@@ -260,10 +268,10 @@ public class PeopleFragment extends AbsHomeFragment implements ContactsManager.C
             mMatrixUserOnlyCheckbox.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
                 @Override
                 public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
-                    final SharedPreferences preferences = PreferenceManager.getDefaultSharedPreferences(getActivity());
-                    SharedPreferences.Editor editor = preferences.edit();
-                    editor.putBoolean(MATRIX_USER_ONLY_PREF_KEY, mMatrixUserOnlyCheckbox.isChecked());
-                    editor.commit();
+                    PreferenceManager.getDefaultSharedPreferences(getActivity())
+                            .edit()
+                            .putBoolean(MATRIX_USER_ONLY_PREF_KEY, mMatrixUserOnlyCheckbox.isChecked())
+                            .apply();
 
                     initContactsViews();
                 }
@@ -276,30 +284,6 @@ public class PeopleFragment extends AbsHomeFragment implements ContactsManager.C
      * Data management
      * *********************************************************************************************
      */
-
-    /**
-     * Fill the direct chats adapter with data
-     */
-    private void initDirectChatsData() {
-        final List<String> directChatIds = mSession.getDirectChatRoomIdsList();
-        final MXDataHandler dataHandler = mSession.getDataHandler();
-        final IMXStore store = dataHandler.getStore();
-
-
-        mDirectChats.clear();
-        if (directChatIds != null && !directChatIds.isEmpty()) {
-            for (String roomId : directChatIds) {
-                Room room = store.getRoom(roomId);
-
-                if ((null != room) && !room.isConferenceUserRoom()) {
-                    final Set<String> tags = room.getAccountData().getKeys();
-                    if ((null == tags) || !tags.contains(RoomTag.ROOM_TAG_LOW_PRIORITY)) {
-                        mDirectChats.add(dataHandler.getRoom(roomId));
-                    }
-                }
-            }
-        }
-    }
 
     /**
      * Fill the local address book and known contacts adapters with data
@@ -349,7 +333,7 @@ public class PeopleFragment extends AbsHomeFragment implements ContactsManager.C
         try {
             asyncTask.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
         } catch (final Exception e) {
-            Log.e(LOG_TAG, "## initKnownContacts() failed " + e.getMessage());
+            Log.e(LOG_TAG, "## initKnownContacts() failed " + e.getMessage(), e);
             asyncTask.cancel(true);
 
             (new android.os.Handler(Looper.getMainLooper())).postDelayed(new Runnable() {
@@ -365,14 +349,14 @@ public class PeopleFragment extends AbsHomeFragment implements ContactsManager.C
      * Display the public rooms loading view
      */
     private void showKnownContactLoadingView() {
-        mAdapter.getSectionViewForSectionIndex(mAdapter.getSectionsCount()-1).showLoadingView();
+        mAdapter.getSectionViewForSectionIndex(mAdapter.getSectionsCount() - 1).showLoadingView();
     }
 
     /**
      * Hide the public rooms loading view
      */
     private void hideKnownContactLoadingView() {
-        mAdapter.getSectionViewForSectionIndex(mAdapter.getSectionsCount()-1).hideLoadingView();
+        mAdapter.getSectionViewForSectionIndex(mAdapter.getSectionsCount() - 1).hideLoadingView();
     }
 
     /**
@@ -416,7 +400,7 @@ public class PeopleFragment extends AbsHomeFragment implements ContactsManager.C
                     //
                     if (TextUtils.equals(fPattern, mCurrentFilter)) {
                         hideKnownContactLoadingView();
-                        mAdapter.setKnownContactsExtraTitle(PeopleFragment.this.getContext().getString(R.string.offline));
+                        mAdapter.setKnownContactsExtraTitle(getString(R.string.offline));
                         mAdapter.filterAccountKnownContacts(mCurrentFilter);
                     }
                 }
@@ -537,13 +521,6 @@ public class PeopleFragment extends AbsHomeFragment implements ContactsManager.C
     }
 
     /**
-     * Init direct chats view with data and update its display
-     */
-    private void initDirectChatsViews() {
-        mAdapter.setRooms(mDirectChats);
-    }
-
-    /**
      * Init contacts views with data and update their display
      */
     private void initContactsViews() {
@@ -559,14 +536,11 @@ public class PeopleFragment extends AbsHomeFragment implements ContactsManager.C
      */
 
     @Override
-    public void onSummariesUpdate() {
-        super.onSummariesUpdate();
-
+    public void onRoomResultUpdated(final HomeRoomsViewModel.Result result) {
         if (isResumed()) {
             mAdapter.setInvitation(mActivity.getRoomInvitations());
-
-            initDirectChatsData();
-            initDirectChatsViews();
+            mDirectChats = result.getDirectChatsWithFavorites();
+            mAdapter.setRooms(mDirectChats);
         }
     }
 
@@ -592,14 +566,33 @@ public class PeopleFragment extends AbsHomeFragment implements ContactsManager.C
     }
 
     @Override
+    public void onIdentityServerTermsNotSigned(String token) {
+        if (isAdded()) {
+            startActivityForResult(ReviewTermsActivity.Companion.intent(getActivity(),
+                    TermsManager.ServiceType.IdentityService, mSession.getIdentityServerManager().getIdentityServerUrl() /* Cannot be null */, token),
+                    RequestCodesKt.TERMS_REQUEST_CODE);
+        }
+    }
+
+    @Override
+    public void onNoIdentityServerDefined() {
+
+    }
+
+    @Override
     public void onToggleDirectChat(String roomId, boolean isDirectChat) {
-        if(!isDirectChat){
-           mAdapter.removeDirectChat(roomId);
+        if (!isDirectChat) {
+            mAdapter.removeDirectChat(roomId);
         }
     }
 
     @Override
     public void onRoomLeft(String roomId) {
+        mAdapter.removeDirectChat(roomId);
+    }
+
+    @Override
+    public void onRoomForgot(String roomId) {
         mAdapter.removeDirectChat(roomId);
     }
 }

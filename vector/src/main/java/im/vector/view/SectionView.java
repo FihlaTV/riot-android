@@ -16,19 +16,18 @@
 
 package im.vector.view;
 
-import android.annotation.TargetApi;
 import android.content.Context;
-import android.os.Build;
 import android.util.AttributeSet;
-import org.matrix.androidsdk.util.Log;
 import android.view.View;
 import android.widget.ProgressBar;
 import android.widget.RelativeLayout;
 import android.widget.TextView;
 
+import org.matrix.androidsdk.core.Log;
+
 import im.vector.R;
 import im.vector.adapters.AdapterSection;
-import im.vector.util.ThemeUtils;
+import im.vector.ui.themes.ThemeUtils;
 
 public class SectionView extends RelativeLayout {
 
@@ -37,9 +36,7 @@ public class SectionView extends RelativeLayout {
     private AdapterSection mSection;
 
     private int mHeaderTop;
-    private int mHeaderBottom;
     private int mFooterTop;
-    private int mFooterBottom;
 
     // header subview
     private View mSubView;
@@ -48,25 +45,16 @@ public class SectionView extends RelativeLayout {
     private TextView mTitleView;
     private ProgressBar mLoadingView;
 
-    public SectionView(Context context, AdapterSection section) {
+    public SectionView(Context context) {
         super(context);
-        setup(section);
     }
 
-    public SectionView(Context context, AttributeSet attrs, AdapterSection section) {
+    public SectionView(Context context, AttributeSet attrs) {
         super(context, attrs);
-        setup(section);
     }
 
-    public SectionView(Context context, AttributeSet attrs, int defStyleAttr, AdapterSection section) {
+    public SectionView(Context context, AttributeSet attrs, int defStyleAttr) {
         super(context, attrs, defStyleAttr);
-        setup(section);
-    }
-
-    @TargetApi(Build.VERSION_CODES.LOLLIPOP)
-    public SectionView(Context context, AttributeSet attrs, int defStyleAttr, int defStyleRes, AdapterSection section) {
-        super(context, attrs, defStyleAttr, defStyleRes);
-        setup(section);
     }
 
     /**
@@ -74,20 +62,20 @@ public class SectionView extends RelativeLayout {
      *
      * @param section the section description
      */
-    private void setup(final AdapterSection section) {
+    public void setup(final AdapterSection section) {
         mSection = section;
 
-        setBackgroundColor(ThemeUtils.getColor(getContext(), R.attr.list_header_background_color));
+        setBackgroundColor(ThemeUtils.INSTANCE.getColor(getContext(), R.attr.vctr_list_header_background_color));
         setLayoutParams(new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT));
 
         // inflate the layout
         View headerView = inflate(getContext(), R.layout.adapter_sticky_header, null);
 
         // extract the UI items
-        mTitleView = (TextView) headerView.findViewById(R.id.section_title);
+        mTitleView = headerView.findViewById(R.id.section_title);
         mTitleView.setText(section.getTitle());
 
-        mLoadingView = (ProgressBar) headerView.findViewById(R.id.section_loading);
+        mLoadingView = headerView.findViewById(R.id.section_loading);
         mLoadingView.setVisibility(View.INVISIBLE);
 
         // custom subview ?
@@ -126,31 +114,8 @@ public class SectionView extends RelativeLayout {
         mLoadingView.setVisibility(View.INVISIBLE);
     }
 
-    /**
-     * @return true if the loading view is visible
-     */
-    public boolean isLoadingViewVisisble() {
-        return (View.INVISIBLE == mLoadingView.getVisibility());
-    }
-
-    @Override
-    protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
-        super.onMeasure(widthMeasureSpec, heightMeasureSpec);
-        //Log.d(LOG_TAG, "onMeasure parent height" + MeasureSpec.getSize(heightMeasureSpec));
-    }
-
-    @Override
-    protected void onSizeChanged(int xNew, int yNew, int xOld, int yOld) {
-        super.onSizeChanged(xNew, yNew, xOld, yOld);
-        //Log.d(LOG_TAG, "onSizeChanged yOld " + yOld + " yNew" + yNew);
-    }
-
     public boolean isStickyHeader() {
         return getTranslationY() == mHeaderTop;
-    }
-
-    public boolean isStickyFooter() {
-        return getTranslationY() == mFooterTop;
     }
 
     /**
@@ -207,7 +172,7 @@ public class SectionView extends RelativeLayout {
      */
     public void setHeaderBottom(int headerBottom) {
         Log.d(LOG_TAG, "sectionview " + mSection.getTitle() + " setHeaderBottom " + headerBottom);
-        mHeaderBottom = headerBottom;
+        //mHeaderBottom = headerBottom;
         setBottom(headerBottom);
     }
 
@@ -237,7 +202,7 @@ public class SectionView extends RelativeLayout {
      */
     public void setFooterBottom(int footerBottom) {
         Log.d(LOG_TAG, "sectionview " + mSection.getTitle() + " setFooterBottom " + footerBottom);
-        mFooterBottom = footerBottom;
+        //mFooterBottom = footerBottom;
     }
 
     /**

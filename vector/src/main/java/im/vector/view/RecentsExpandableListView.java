@@ -1,12 +1,12 @@
-/* 
+/*
  * Copyright 2016 OpenMarket Ltd
- * 
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *     http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -30,7 +30,8 @@ public class RecentsExpandableListView extends ExpandableListView {
     public interface DragAndDropEventsListener {
         /**
          * Provides the new y touch position and the related child view.
-         * @param y the touch y position.
+         *
+         * @param y             the touch y position.
          * @param groupPosition the child view group position
          * @param childPosition the child view child position
          */
@@ -43,6 +44,7 @@ public class RecentsExpandableListView extends ExpandableListView {
 
         /**
          * Called the list view is over scrolled
+         *
          * @param isTop set to true when the list is top over scrolled.
          */
         void onOverScrolled(boolean isTop);

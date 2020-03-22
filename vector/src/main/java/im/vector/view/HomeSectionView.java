@@ -18,11 +18,7 @@ package im.vector.view;
 
 import android.annotation.TargetApi;
 import android.content.Context;
-import android.graphics.drawable.GradientDrawable;
 import android.os.Build;
-import android.support.annotation.LayoutRes;
-import android.support.annotation.StringRes;
-import android.support.v7.widget.RecyclerView;
 import android.text.TextUtils;
 import android.util.AttributeSet;
 import android.view.View;
@@ -30,8 +26,13 @@ import android.widget.Filter;
 import android.widget.RelativeLayout;
 import android.widget.TextView;
 
+import androidx.annotation.LayoutRes;
+import androidx.annotation.StringRes;
+import androidx.core.content.ContextCompat;
+import androidx.recyclerview.widget.RecyclerView;
+
+import org.matrix.androidsdk.core.Log;
 import org.matrix.androidsdk.data.Room;
-import org.matrix.androidsdk.util.Log;
 
 import java.util.List;
 
@@ -40,9 +41,11 @@ import butterknife.ButterKnife;
 import im.vector.R;
 import im.vector.adapters.AbsAdapter;
 import im.vector.adapters.HomeRoomAdapter;
+import im.vector.adapters.model.NotificationCounter;
 import im.vector.fragments.AbsHomeFragment;
-import im.vector.util.ThemeUtils;
+import im.vector.ui.themes.ThemeUtils;
 import im.vector.util.RoomUtils;
+import im.vector.util.ViewUtilKt;
 
 public class HomeSectionView extends RelativeLayout {
     private static final String LOG_TAG = HomeSectionView.class.getSimpleName();
@@ -82,7 +85,7 @@ public class HomeSectionView extends RelativeLayout {
     }
 
     @TargetApi(Build.VERSION_CODES.LOLLIPOP)
-    public HomeSectionView(Context context, AttributeSet attrs, int defStyleAttr, int defStyleRes) {
+    private HomeSectionView(Context context, AttributeSet attrs, int defStyleAttr, int defStyleRes) {
         super(context, attrs, defStyleAttr, defStyleRes);
         setup();
     }
@@ -106,12 +109,6 @@ public class HomeSectionView extends RelativeLayout {
         inflate(getContext(), R.layout.home_section_view, this);
         ButterKnife.bind(this);
 
-        GradientDrawable shape = new GradientDrawable();
-        shape.setShape(GradientDrawable.RECTANGLE);
-        shape.setCornerRadius(100);
-        shape.setColor(ThemeUtils.getColor(getContext(), R.attr.activity_bottom_gradient_color));
-        mBadge.setBackground(shape);
-
         mHeader.setOnClickListener(new OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -131,14 +128,45 @@ public class HomeSectionView extends RelativeLayout {
             // reported by GA
             // the adapter value is tested by it seems crashed when calling getBadgeCount
             try {
-                setVisibility(mHideIfEmpty && mAdapter.isEmpty() ? GONE : VISIBLE);
-                final int badgeCount = mAdapter.getBadgeCount();
-                mBadge.setText(RoomUtils.formatUnreadMessagesCounter(badgeCount));
-                mBadge.setVisibility(badgeCount == 0 ? GONE : VISIBLE);
-                mRecyclerView.setVisibility(mAdapter.hasNoResult() ? GONE : VISIBLE);
-                mPlaceHolder.setVisibility(mAdapter.hasNoResult() ? VISIBLE : GONE);
+                boolean isEmpty = mAdapter.isEmpty();
+
+                if (mHideIfEmpty && isEmpty) {
+                    setVisibility(GONE);
+                } else {
+                    setVisibility(VISIBLE);
+
+                    NotificationCounter notificationCounter = mAdapter.getBadgeCount();
+
+                    if (notificationCounter.getNotifications() == 0) {
+                        mBadge.setVisibility(GONE);
+                    } else {
+                        mBadge.setVisibility(VISIBLE);
+                        mBadge.setText(RoomUtils.formatUnreadMessagesCounter(notificationCounter.getNotifications()));
+
+                        int bingUnreadColor;
+
+                        // Badge background
+                        if (notificationCounter.getHighlights() > 0) {
+                            // Red
+                            bingUnreadColor = ContextCompat.getColor(getContext(), R.color.vector_fuchsia_color);
+                        } else {
+                            // Normal
+                            bingUnreadColor = ThemeUtils.INSTANCE.getColor(getContext(), R.attr.vctr_notice_secondary);
+                        }
+
+                        ViewUtilKt.setRoundBackground(mBadge, bingUnreadColor);
+                    }
+
+                    if (mAdapter.hasNoResult()) {
+                        mRecyclerView.setVisibility(GONE);
+                        mPlaceHolder.setVisibility(VISIBLE);
+                    } else {
+                        mRecyclerView.setVisibility(VISIBLE);
+                        mPlaceHolder.setVisibility(GONE);
+                    }
+                }
             } catch (Exception e) {
-                Log.e(LOG_TAG, "## onDataUpdated() failed " + e.getMessage());
+                Log.e(LOG_TAG, "## onDataUpdated() failed " + e.getMessage(), e);
             }
         }
     }
@@ -190,10 +218,12 @@ public class HomeSectionView extends RelativeLayout {
      * @param invitationListener   listener for invite buttons
      * @param moreActionListener   listener for room menu
      */
-    public void setupRecyclerView(final RecyclerView.LayoutManager layoutManager, @LayoutRes final int itemResId,
-                                  final boolean nestedScrollEnabled, final HomeRoomAdapter.OnSelectRoomListener onSelectRoomListener,
-                                  final AbsAdapter.InvitationListener invitationListener,
-                                  final AbsAdapter.MoreRoomActionListener moreActionListener) {
+    public void setupRoomRecyclerView(final RecyclerView.LayoutManager layoutManager,
+                                      @LayoutRes final int itemResId,
+                                      final boolean nestedScrollEnabled,
+                                      final HomeRoomAdapter.OnSelectRoomListener onSelectRoomListener,
+                                      final AbsAdapter.RoomInvitationListener invitationListener,
+                                      final AbsAdapter.MoreRoomActionListener moreActionListener) {
         mRecyclerView.setLayoutManager(layoutManager);
         mRecyclerView.setHasFixedSize(true);
         mRecyclerView.setNestedScrollingEnabled(nestedScrollEnabled);
@@ -256,6 +286,7 @@ public class HomeSectionView extends RelativeLayout {
 
     /**
      * Scrolls the list to display the item first
+     *
      * @param index the item index
      */
     public void scrollToPosition(int index) {

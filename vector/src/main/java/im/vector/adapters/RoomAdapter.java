@@ -1,5 +1,6 @@
 /*
  * Copyright 2017 Vector Creations Ltd
+ * Copyright 2018 New Vector Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,9 +19,6 @@ package im.vector.adapters;
 
 import android.content.Context;
 import android.graphics.Color;
-import android.support.annotation.CallSuper;
-import android.support.v4.content.ContextCompat;
-import android.support.v7.widget.RecyclerView;
 import android.text.TextUtils;
 import android.util.Pair;
 import android.view.LayoutInflater;
@@ -29,9 +27,13 @@ import android.view.ViewGroup;
 import android.widget.ImageView;
 import android.widget.TextView;
 
+import androidx.annotation.CallSuper;
+import androidx.core.content.ContextCompat;
+import androidx.recyclerview.widget.RecyclerView;
+
+import org.matrix.androidsdk.core.Log;
 import org.matrix.androidsdk.data.Room;
-import org.matrix.androidsdk.rest.model.PublicRoom;
-import org.matrix.androidsdk.util.Log;
+import org.matrix.androidsdk.rest.model.publicroom.PublicRoom;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -50,8 +52,8 @@ public class RoomAdapter extends AbsAdapter {
 
     private static final int TYPE_PUBLIC_ROOM = 1;
 
-    private AdapterSection<Room> mRoomsSection;
-    private PublicRoomsAdapterSection mPublicRoomsSection;
+    private final AdapterSection<Room> mRoomsSection;
+    private final PublicRoomsAdapterSection mPublicRoomsSection;
 
     private final OnSelectItemListener mListener;
 
@@ -61,16 +63,19 @@ public class RoomAdapter extends AbsAdapter {
      * *********************************************************************************************
      */
 
-    public RoomAdapter(final Context context, final OnSelectItemListener listener, final InvitationListener invitationListener, final MoreRoomActionListener moreActionListener) {
+    public RoomAdapter(final Context context,
+                       final OnSelectItemListener listener,
+                       final RoomInvitationListener invitationListener,
+                       final MoreRoomActionListener moreActionListener) {
         super(context, invitationListener, moreActionListener);
 
         mListener = listener;
 
-        mRoomsSection = new AdapterSection<>(context.getString(R.string.rooms_header), -1,
+        mRoomsSection = new AdapterSection<>(context, context.getString(R.string.rooms_header), -1,
                 R.layout.adapter_item_room_view, TYPE_HEADER_DEFAULT, TYPE_ROOM, new ArrayList<Room>(), RoomUtils.getRoomsDateComparator(mSession, false));
         mRoomsSection.setEmptyViewPlaceholder(context.getString(R.string.no_room_placeholder), context.getString(R.string.no_result_placeholder));
 
-        mPublicRoomsSection = new PublicRoomsAdapterSection(context.getString(R.string.rooms_directory_header),
+        mPublicRoomsSection = new PublicRoomsAdapterSection(context, context.getString(R.string.rooms_directory_header),
                 R.layout.adapter_public_room_sticky_header_subview, R.layout.adapter_item_public_room_view,
                 TYPE_HEADER_PUBLIC_ROOM, TYPE_PUBLIC_ROOM, new ArrayList<PublicRoom>(), null);
         mPublicRoomsSection.setEmptyViewPlaceholder(context.getString(R.string.no_public_room_placeholder), context.getString(R.string.no_result_placeholder));
@@ -125,7 +130,7 @@ public class RoomAdapter extends AbsAdapter {
             case TYPE_ROOM:
                 final RoomViewHolder roomViewHolder = (RoomViewHolder) viewHolder;
                 final Room room = (Room) getItemForPosition(position);
-                roomViewHolder.populateViews(mContext, mSession, room, false, false, mMoreActionListener);
+                roomViewHolder.populateViews(mContext, mSession, room, false, false, mMoreRoomActionListener);
                 roomViewHolder.itemView.setOnClickListener(new View.OnClickListener() {
                     @Override
                     public void onClick(View v) {
@@ -229,7 +234,7 @@ public class RoomAdapter extends AbsAdapter {
 
             // display the room avatar
             vPublicRoomAvatar.setBackgroundColor(ContextCompat.getColor(mContext, android.R.color.transparent));
-            VectorUtils.loadUserAvatar(mContext, mSession, vPublicRoomAvatar, publicRoom.getAvatarUrl(), publicRoom.roomId, roomName);
+            VectorUtils.loadUserAvatar(mContext, mSession, vPublicRoomAvatar, publicRoom.avatarUrl, publicRoom.roomId, roomName);
 
             // set the topic
             vRoomTopic.setText(publicRoom.topic);

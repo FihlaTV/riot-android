@@ -1,12 +1,13 @@
-/* 
+/*
  * Copyright 2016 OpenMarket Ltd
- * 
+ * Copyright 2018 New Vector Ltd
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *     http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -26,11 +27,15 @@ import android.widget.RelativeLayout;
 import android.widget.TextView;
 
 import org.matrix.androidsdk.call.IMXCall;
+import org.matrix.androidsdk.call.IMXCallListener;
+import org.matrix.androidsdk.call.MXCallListener;
+import org.matrix.androidsdk.core.callback.ApiCallback;
+import org.matrix.androidsdk.core.model.MatrixError;
 import org.matrix.androidsdk.data.Room;
 
 import im.vector.R;
-import im.vector.activity.VectorCallViewActivity;
 import im.vector.util.CallUtilities;
+import im.vector.util.CallsManager;
 import im.vector.util.VectorUtils;
 
 /**
@@ -59,7 +64,7 @@ public class VectorPendingCallView extends RelativeLayout {
     private boolean mIsCallStatusHidden;
 
     // the call listener
-    private final IMXCall.MXCallListener mCallListener = new IMXCall.MXCallListener() {
+    private final IMXCallListener mCallListener = new MXCallListener() {
         @Override
         public void onStateDidChange(String state) {
             refresh();
@@ -71,12 +76,8 @@ public class VectorPendingCallView extends RelativeLayout {
         }
 
         @Override
-        public void onViewLoading(View callView) {
+        public void onCallViewCreated(View callView) {
             refresh();
-        }
-
-        @Override
-        public void onViewReady() {
         }
 
         @Override
@@ -93,7 +94,6 @@ public class VectorPendingCallView extends RelativeLayout {
         public void onPreviewSizeChanged(int width, int height) {
         }
     };
-
 
     /**
      * constructors
@@ -119,13 +119,17 @@ public class VectorPendingCallView extends RelativeLayout {
     private void initView() {
         View.inflate(getContext(), R.layout.vector_pending_call_view, this);
 
+        if (isInEditMode()) {
+            return;
+        }
+
         // retrieve the UI items
         mMainView = findViewById(R.id.main_view);
 
-        mCallDescriptionTextView = (TextView) findViewById(R.id.pending_call_room_name_textview);
+        mCallDescriptionTextView = findViewById(R.id.pending_call_room_name_textview);
         mCallDescriptionTextView.setVisibility(View.GONE);
 
-        mCallStatusTextView = (TextView) findViewById(R.id.pending_call_status_textview);
+        mCallStatusTextView = findViewById(R.id.pending_call_status_textview);
         mCallStatusTextView.setVisibility(View.GONE);
 
         // UI handler
@@ -138,7 +142,7 @@ public class VectorPendingCallView extends RelativeLayout {
      * If there is none, this view is gone.
      */
     public void checkPendingCall() {
-        IMXCall call = VectorCallViewActivity.getActiveCall();
+        IMXCall call = CallsManager.getSharedInstance().getActiveCall();
 
         // no more call
         if (null == call) {
@@ -200,8 +204,7 @@ public class VectorPendingCallView extends RelativeLayout {
      * Terminates the refresh processes.
      */
     public void onCallTerminated() {
-        mCall = null;
-        setVisibility(View.GONE);
+        checkPendingCall();
     }
 
     /**
@@ -211,24 +214,44 @@ public class VectorPendingCallView extends RelativeLayout {
         if (null != mCall) {
             mCallDescriptionTextView.setVisibility(View.VISIBLE);
 
+            updateDescription(mCall.getCallId());
+
             Room room = mCall.getRoom();
 
-            String description;
-
             if (null != room) {
-                description = VectorUtils.getCallingRoomDisplayName(getContext(), mCall.getSession(), room);
-            } else {
-                description = mCall.getCallId();
-            }
+                VectorUtils.getCallingRoomDisplayName(getContext(), mCall.getSession(), room, new ApiCallback<String>() {
+                    @Override
+                    public void onSuccess(String info) {
+                        updateDescription(info);
+                    }
 
-            if (TextUtils.equals(mCall.getCallState(), IMXCall.CALL_STATE_CONNECTED) && !mIsCallStatusHidden) {
-                description += " - " + getResources().getString(R.string.active_call);
-            }
+                    @Override
+                    public void onNetworkError(Exception e) {
+                        // Ignore error
+                    }
 
-            mCallDescriptionTextView.setText(description);
+                    @Override
+                    public void onMatrixError(MatrixError e) {
+                        // Ignore error
+                    }
+
+                    @Override
+                    public void onUnexpectedError(Exception e) {
+                        // Ignore error
+                    }
+                });
+            }
         } else {
             mCallDescriptionTextView.setVisibility(View.GONE);
         }
+    }
+
+    private void updateDescription(String description) {
+        if (TextUtils.equals(mCall.getCallState(), IMXCall.CALL_STATE_CONNECTED) && !mIsCallStatusHidden) {
+            description += " - " + getResources().getString(R.string.active_call);
+        }
+
+        mCallDescriptionTextView.setText(description);
     }
 
     /**
@@ -254,7 +277,7 @@ public class VectorPendingCallView extends RelativeLayout {
     /**
      * Update the background color of the call view
      *
-     * @param primaryColor
+     * @param primaryColor the primary color
      */
     public void updateBackgroundColor(int primaryColor) {
         mMainView.setBackgroundColor(primaryColor);

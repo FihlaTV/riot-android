@@ -1,5 +1,6 @@
 /*
  * Copyright 2015 OpenMarket Ltd
+ * Copyright 2018 New Vector Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,7 +19,6 @@ package im.vector.adapters;
 
 import android.content.Context;
 import android.graphics.Typeface;
-import org.matrix.androidsdk.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -26,30 +26,33 @@ import android.widget.ArrayAdapter;
 import android.widget.ImageView;
 import android.widget.TextView;
 
-import im.vector.R;
-import im.vector.util.ThemeUtils;
-import im.vector.util.VectorUtils;
-
 import org.matrix.androidsdk.MXSession;
+import org.matrix.androidsdk.core.EventDisplay;
+import org.matrix.androidsdk.core.Log;
 import org.matrix.androidsdk.data.Room;
 import org.matrix.androidsdk.data.RoomSummary;
 import org.matrix.androidsdk.rest.model.Event;
-import org.matrix.androidsdk.util.EventDisplay;
+
+import im.vector.R;
+import im.vector.ui.themes.ThemeUtils;
+import im.vector.util.RiotEventDisplay;
+import im.vector.util.VectorUtils;
 
 /**
  * An adapter which display the rooms list
  */
 public class VectorRoomsSelectionAdapter extends ArrayAdapter<RoomSummary> {
-    private static final String LOG_TAG = "VectRoomsSelectAdapt";
+    private static final String LOG_TAG = VectorRoomsSelectionAdapter.class.getSimpleName();
 
-    private Context mContext;
-    private LayoutInflater mLayoutInflater;
-    private int mLayoutResourceId;
-    private MXSession mSession;
+    private final Context mContext;
+    private final LayoutInflater mLayoutInflater;
+    private final int mLayoutResourceId;
+    private final MXSession mSession;
 
     /**
      * Constructor of a public rooms adapter.
-     * @param context the context
+     *
+     * @param context          the context
      * @param layoutResourceId the layout
      */
     public VectorRoomsSelectionAdapter(Context context, int layoutResourceId, MXSession session) {
@@ -63,11 +66,12 @@ public class VectorRoomsSelectionAdapter extends ArrayAdapter<RoomSummary> {
     /**
      * Provides the formatted timestamp to display.
      * null means that the timestamp text must be hidden.
+     *
      * @param event the event.
-     * @return  the formatted timestamp to display.
+     * @return the formatted timestamp to display.
      */
     private String getFormattedTimestamp(Event event) {
-        String text =  AdapterUtils.tsToString(mContext, event.getOriginServerTs(), false);
+        String text = AdapterUtils.tsToString(mContext, event.getOriginServerTs(), false);
 
         // don't display the today before the time
         String today = mContext.getString(R.string.today) + " ";
@@ -78,6 +82,7 @@ public class VectorRoomsSelectionAdapter extends ArrayAdapter<RoomSummary> {
         return text;
     }
 
+    // TODO Recycling is not managed well here
     @Override
     public View getView(int position, View convertView, ViewGroup parent) {
         if (convertView == null) {
@@ -90,14 +95,13 @@ public class VectorRoomsSelectionAdapter extends ArrayAdapter<RoomSummary> {
         }
 
         RoomSummary roomSummary = getItem(position);
-        String roomName = roomSummary.getRoomName();
 
         // retrieve the UI items
-        ImageView avatarImageView = (ImageView)convertView.findViewById(R.id.room_avatar);
-        TextView roomNameTxtView = (TextView) convertView.findViewById(R.id.roomSummaryAdapter_roomName);
-        TextView roomMessageTxtView = (TextView) convertView.findViewById(R.id.roomSummaryAdapter_roomMessage);
+        ImageView avatarImageView = convertView.findViewById(R.id.adapter_item_recent_room_avatar);
+        TextView roomNameTxtView = convertView.findViewById(R.id.roomSummaryAdapter_roomName);
+        TextView roomMessageTxtView = convertView.findViewById(R.id.roomSummaryAdapter_roomMessage);
 
-        TextView timestampTxtView = (TextView) convertView.findViewById(R.id.roomSummaryAdapter_ts);
+        TextView timestampTxtView = convertView.findViewById(R.id.roomSummaryAdapter_ts);
         View separatorView = convertView.findViewById(R.id.recents_separator);
 
         // display the room avatar
@@ -108,12 +112,14 @@ public class VectorRoomsSelectionAdapter extends ArrayAdapter<RoomSummary> {
         }
 
         if (roomSummary.getLatestReceivedEvent() != null) {
-            EventDisplay eventDisplay = new EventDisplay(mContext, roomSummary.getLatestReceivedEvent(), roomSummary.getLatestRoomState());
+            EventDisplay eventDisplay = new RiotEventDisplay(mContext);
             eventDisplay.setPrependMessagesWithAuthor(true);
-            roomMessageTxtView.setText(eventDisplay.getTextualDisplay(ThemeUtils.getColor(mContext, R.attr.riot_primary_text_color)));
+            roomMessageTxtView.setText(eventDisplay.getTextualDisplay(ThemeUtils.INSTANCE.getColor(mContext, android.R.attr.textColorTertiary),
+                    roomSummary.getLatestReceivedEvent(),
+                    roomSummary.getLatestRoomState()));
 
             timestampTxtView.setText(getFormattedTimestamp(roomSummary.getLatestReceivedEvent()));
-            timestampTxtView.setTextColor(ThemeUtils.getColor(mContext, R.attr.default_text_light_color));
+            timestampTxtView.setTextColor(ThemeUtils.INSTANCE.getColor(mContext, android.R.attr.textColorSecondary));
             timestampTxtView.setTypeface(null, Typeface.NORMAL);
             timestampTxtView.setVisibility(View.VISIBLE);
         } else {
@@ -121,8 +127,14 @@ public class VectorRoomsSelectionAdapter extends ArrayAdapter<RoomSummary> {
             timestampTxtView.setVisibility(View.GONE);
         }
 
-        // display the room name
-        roomNameTxtView.setText(roomName);
+        Room room = mSession.getDataHandler().getRoom(roomSummary.getRoomId());
+        if (room != null) {
+            // display the room name
+            String roomName = room.getRoomDisplayName(mContext);
+            roomNameTxtView.setText(roomName);
+        } else {
+            roomNameTxtView.setText(null);
+        }
 
         // separator
         separatorView.setVisibility(View.VISIBLE);

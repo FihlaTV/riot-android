@@ -17,42 +17,41 @@
 package im.vector.fragments;
 
 import android.os.Bundle;
-import android.support.v4.content.ContextCompat;
-import android.support.v7.widget.DividerItemDecoration;
-import android.support.v7.widget.LinearLayoutManager;
-import android.support.v7.widget.RecyclerView;
-import android.support.v7.widget.helper.ItemTouchHelper;
 import android.text.TextUtils;
-import org.matrix.androidsdk.util.Log;
-import android.view.LayoutInflater;
 import android.view.View;
-import android.view.ViewGroup;
 import android.widget.Filter;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.recyclerview.widget.DividerItemDecoration;
+import androidx.recyclerview.widget.ItemTouchHelper;
+import androidx.recyclerview.widget.LinearLayoutManager;
+import androidx.recyclerview.widget.RecyclerView;
+
+import org.matrix.androidsdk.core.Log;
+import org.matrix.androidsdk.core.callback.ApiCallback;
+import org.matrix.androidsdk.core.model.MatrixError;
 import org.matrix.androidsdk.data.Room;
-import org.matrix.androidsdk.data.RoomSummary;
 import org.matrix.androidsdk.data.RoomTag;
-import org.matrix.androidsdk.data.store.IMXStore;
+import org.matrix.androidsdk.data.comparator.RoomComparatorWithTag;
 import org.matrix.androidsdk.listeners.MXEventListener;
-import org.matrix.androidsdk.rest.callback.ApiCallback;
-import org.matrix.androidsdk.rest.model.MatrixError;
 
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.List;
 
 import butterknife.BindView;
 import im.vector.R;
+import im.vector.VectorApp;
 import im.vector.adapters.HomeRoomAdapter;
+import im.vector.ui.themes.ThemeUtils;
+import im.vector.util.HomeRoomsViewModel;
 import im.vector.util.RoomUtils;
 import im.vector.view.EmptyViewItemDecoration;
 import im.vector.view.SimpleDividerItemDecoration;
 
 public class FavouritesFragment extends AbsHomeFragment implements HomeRoomAdapter.OnSelectRoomListener {
-    private static final String LOG_TAG = "FavouritesFragment";
+    private static final String LOG_TAG = FavouritesFragment.class.getSimpleName();
 
     @BindView(R.id.favorites_recycler_view)
     RecyclerView mFavoritesRecyclerView;
@@ -96,19 +95,16 @@ public class FavouritesFragment extends AbsHomeFragment implements HomeRoomAdapt
      */
 
     @Override
-    public View onCreateView(final LayoutInflater inflater, final ViewGroup container, final Bundle savedInstanceState) {
-        return inflater.inflate(R.layout.fragment_favourites, container, false);
+    public int getLayoutResId() {
+        return R.layout.fragment_favourites;
     }
 
     @Override
     public void onActivityCreated(final Bundle savedInstanceState) {
         super.onActivityCreated(savedInstanceState);
-
-        mPrimaryColor = ContextCompat.getColor(getActivity(), R.color.tab_favourites);
-        mSecondaryColor = ContextCompat.getColor(getActivity(), R.color.tab_favourites_secondary);
-
+        mPrimaryColor = ThemeUtils.INSTANCE.getColor(getActivity(), R.attr.vctr_tab_home);
+        mSecondaryColor = ThemeUtils.INSTANCE.getColor(getActivity(), R.attr.vctr_tab_home_secondary);
         initViews();
-
         // Eventually restore the pattern of adapter after orientation change
         mFavoritesAdapter.onFilterDone(mCurrentFilter);
     }
@@ -117,7 +113,6 @@ public class FavouritesFragment extends AbsHomeFragment implements HomeRoomAdapt
     public void onResume() {
         super.onResume();
         mSession.getDataHandler().addListener(mEventsListener);
-        refreshFavorites();
     }
 
     @Override
@@ -168,7 +163,7 @@ public class FavouritesFragment extends AbsHomeFragment implements HomeRoomAdapt
         int margin = (int) getResources().getDimension(R.dimen.item_decoration_left_margin);
 
         // favorites
-        mFavoritesRecyclerView.setLayoutManager(new LinearLayoutManager(getActivity(), LinearLayoutManager.VERTICAL, false));
+        mFavoritesRecyclerView.setLayoutManager(new LinearLayoutManager(getActivity(), RecyclerView.VERTICAL, false));
         mFavoritesRecyclerView.setHasFixedSize(true);
         mFavoritesRecyclerView.setNestedScrollingEnabled(false);
 
@@ -182,13 +177,13 @@ public class FavouritesFragment extends AbsHomeFragment implements HomeRoomAdapt
     }
 
     @Override
-    public void onSummariesUpdate() {
-        super.onSummariesUpdate();
-            
-        if (isResumed()) {
-            if (!mActivity.isWaitingViewVisible()) {
-                refreshFavorites();
-            }
+    public void onRoomResultUpdated(final HomeRoomsViewModel.Result result) {
+        if (isResumed() && !VectorApp.isSessionSyncing(mSession)) {
+            mFavorites = result.getFavourites();
+            Collections.sort(mFavorites, new RoomComparatorWithTag(RoomTag.ROOM_TAG_FAVOURITE));
+            mFavoritesAdapter.setRooms(mFavorites);
+            updateRoomsDisplay(mFavorites.size());
+            mDragAndDropTouchHelper.attachToRecyclerView(mFavorites.size() > 1 ? mFavoritesRecyclerView : null);
         }
     }
 
@@ -212,58 +207,6 @@ public class FavouritesFragment extends AbsHomeFragment implements HomeRoomAdapt
         if (null != mFavoritesRecyclerView) {
             mFavoritesRecyclerView.setVisibility(0 != count ? View.VISIBLE : View.GONE);
         }
-    }
-
-    /**
-     * Init the rooms display
-     */
-    private void refreshFavorites() {
-        final List<String> favouriteRoomIdList = mSession.roomIdsWithTag(RoomTag.ROOM_TAG_FAVOURITE);
-
-        mFavorites.clear();
-
-        if (0 != favouriteRoomIdList.size()) {
-            IMXStore store = mSession.getDataHandler().getStore();
-            List<RoomSummary> roomSummaries = new ArrayList<>(store.getSummaries());
-
-            for (RoomSummary summary : roomSummaries) {
-                if (favouriteRoomIdList.contains(summary.getRoomId())) {
-                    Room room = store.getRoom(summary.getRoomId());
-
-                    if (null != room) {
-                        mFavorites.add(room);
-                    }
-                }
-            }
-
-            try {
-                Comparator<Room> favComparator = new Comparator<Room>() {
-                    public int compare(Room r1, Room r2) {
-                        int pos1 = -1;
-                        int pos2 = -1;
-
-                        if ((null != r1) && (null != r1.getRoomId())) {
-                            pos1 = favouriteRoomIdList.indexOf(r1.getRoomId());
-                        }
-
-                        if ((null != r2) && (null != r2.getRoomId())) {
-                            pos2 = favouriteRoomIdList.indexOf(r2.getRoomId());
-                        }
-
-                        return pos1 - pos2;
-                    }
-                };
-
-                Collections.sort(mFavorites, favComparator);
-            } catch (Exception e) {
-                Log.e(LOG_TAG, "## refreshFavorites() : sort failed with error " + e.getMessage());
-            }
-        }
-
-        mFavoritesAdapter.setRooms(mFavorites);
-        updateRoomsDisplay(mFavorites.size());
-
-        mDragAndDropTouchHelper.attachToRecyclerView(mFavorites.size() > 1 ? mFavoritesRecyclerView : null);
     }
 
     /**
@@ -350,11 +293,7 @@ public class FavouritesFragment extends AbsHomeFragment implements HomeRoomAdapt
      * @param errorMessage the error message if any.
      */
     private void onRoomTagUpdated(String errorMessage) {
-        mActivity.stopWaitingView();
-
-        refreshFavorites();
-        mFavoritesAdapter.notifyDataSetChanged();
-
+        mActivity.hideWaitingView();
         if (!TextUtils.isEmpty(errorMessage)) {
             Toast.makeText(getActivity(), errorMessage, Toast.LENGTH_LONG).show();
         }

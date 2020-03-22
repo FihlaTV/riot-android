@@ -1,6 +1,7 @@
 /*
  * Copyright 2016 OpenMarket Ltd
  * Copyright 2017 Vector Creations Ltd
+ * Copyright 2018 New Vector Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,16 +25,18 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.AdapterView;
 
+import androidx.annotation.NonNull;
+
 import org.matrix.androidsdk.adapters.MessageRow;
-import org.matrix.androidsdk.adapters.AbstractMessagesAdapter;
+import org.matrix.androidsdk.core.JsonUtils;
 import org.matrix.androidsdk.rest.model.Event;
-import org.matrix.androidsdk.rest.model.FileMessage;
-import org.matrix.androidsdk.rest.model.Message;
-import org.matrix.androidsdk.util.JsonUtils;
+import org.matrix.androidsdk.rest.model.message.FileMessage;
+import org.matrix.androidsdk.rest.model.message.Message;
 
 import java.util.ArrayList;
+import java.util.List;
 
-import im.vector.activity.VectorMediasViewerActivity;
+import im.vector.activity.VectorMediaViewerActivity;
 import im.vector.adapters.VectorMessagesAdapter;
 import im.vector.adapters.VectorSearchFilesListAdapter;
 import im.vector.util.SlidableMediaInfo;
@@ -48,26 +51,18 @@ public class VectorSearchRoomsFilesListFragment extends VectorSearchMessagesList
      */
     public static VectorSearchRoomsFilesListFragment newInstance(String matrixId, String roomId, int layoutResId) {
         VectorSearchRoomsFilesListFragment frag = new VectorSearchRoomsFilesListFragment();
-        Bundle args = new Bundle();
-        args.putInt(ARG_LAYOUT_ID, layoutResId);
-        args.putString(ARG_MATRIX_ID, matrixId);
-
-        if (null != roomId) {
-            args.putString(ARG_ROOM_ID, roomId);
-        }
-
-        frag.setArguments(args);
+        frag.setArguments(getArguments(matrixId, roomId, layoutResId));
         return frag;
     }
 
     @Override
-    public AbstractMessagesAdapter createMessagesAdapter() {
+    public VectorMessagesAdapter createMessagesAdapter() {
         mIsMediaSearch = true;
-        return new VectorSearchFilesListAdapter(mSession, getActivity(), (null == mRoomId), getMXMediasCache());
+        return new VectorSearchFilesListAdapter(mSession, getActivity(), (null == mRoomId), getMXMediaCache());
     }
 
     @Override
-    public View onCreateView(LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
+    public View onCreateView(@NonNull LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
         View view = super.onCreateView(inflater, container, savedInstanceState);
 
         mMessageListView.setOnItemClickListener(new AdapterView.OnItemClickListener() {
@@ -76,11 +71,9 @@ public class VectorSearchRoomsFilesListFragment extends VectorSearchMessagesList
                 MessageRow row = mAdapter.getItem(position);
                 Event event = row.getEvent();
 
-                VectorMessagesAdapter vectorMessagesAdapter = (VectorMessagesAdapter) mAdapter;
-
-                if (vectorMessagesAdapter.isInSelectionMode()) {
+                if (mAdapter.isInSelectionMode()) {
                     // cancel the selection mode.
-                    vectorMessagesAdapter.onEventTap(null);
+                    mAdapter.onEventTap(null);
                     return;
                 }
 
@@ -88,17 +81,17 @@ public class VectorSearchRoomsFilesListFragment extends VectorSearchMessagesList
 
                 // video and images are displayed inside a medias slider.
                 if (Message.MSGTYPE_IMAGE.equals(message.msgtype) || (Message.MSGTYPE_VIDEO.equals(message.msgtype))) {
-                    ArrayList<SlidableMediaInfo> mediaMessagesList = listSlidableMessages();
+                    List<SlidableMediaInfo> mediaMessagesList = listSlidableMessages();
                     int listPosition = getMediaMessagePosition(mediaMessagesList, message);
 
                     if (listPosition >= 0) {
-                        Intent viewImageIntent = new Intent(getActivity(), VectorMediasViewerActivity.class);
+                        Intent viewImageIntent = new Intent(getActivity(), VectorMediaViewerActivity.class);
 
-                        viewImageIntent.putExtra(VectorMediasViewerActivity.EXTRA_MATRIX_ID, mSession.getCredentials().userId);
-                        viewImageIntent.putExtra(VectorMediasViewerActivity.KEY_THUMBNAIL_WIDTH, mAdapter.getMaxThumbnailWith());
-                        viewImageIntent.putExtra(VectorMediasViewerActivity.KEY_THUMBNAIL_HEIGHT, mAdapter.getMaxThumbnailHeight());
-                        viewImageIntent.putExtra(VectorMediasViewerActivity.KEY_INFO_LIST, mediaMessagesList);
-                        viewImageIntent.putExtra(VectorMediasViewerActivity.KEY_INFO_LIST_INDEX, listPosition);
+                        viewImageIntent.putExtra(VectorMediaViewerActivity.EXTRA_MATRIX_ID, mSession.getCredentials().userId);
+                        viewImageIntent.putExtra(VectorMediaViewerActivity.KEY_THUMBNAIL_WIDTH, mAdapter.getMaxThumbnailWidth());
+                        viewImageIntent.putExtra(VectorMediaViewerActivity.KEY_THUMBNAIL_HEIGHT, mAdapter.getMaxThumbnailHeight());
+                        viewImageIntent.putExtra(VectorMediaViewerActivity.KEY_INFO_LIST, (ArrayList) mediaMessagesList);
+                        viewImageIntent.putExtra(VectorMediaViewerActivity.KEY_INFO_LIST_INDEX, listPosition);
 
                         getActivity().startActivity(viewImageIntent);
                     }

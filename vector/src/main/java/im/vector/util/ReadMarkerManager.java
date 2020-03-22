@@ -1,5 +1,6 @@
 /*
  * Copyright 2017 Vector Creations Ltd
+ * Copyright 2018 New Vector Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,21 +20,23 @@ package im.vector.util;
 import android.app.Activity;
 import android.content.Intent;
 import android.graphics.Paint;
-import android.support.annotation.IntDef;
 import android.text.TextUtils;
 import android.view.View;
 import android.widget.AbsListView;
 import android.widget.ListView;
 import android.widget.TextView;
 
+import androidx.annotation.IntDef;
+
 import org.matrix.androidsdk.MXSession;
 import org.matrix.androidsdk.adapters.MessageRow;
+import org.matrix.androidsdk.core.Log;
+import org.matrix.androidsdk.core.MXPatterns;
+import org.matrix.androidsdk.core.callback.ApiCallback;
+import org.matrix.androidsdk.core.model.MatrixError;
 import org.matrix.androidsdk.data.Room;
 import org.matrix.androidsdk.data.RoomSummary;
-import org.matrix.androidsdk.rest.callback.ApiCallback;
 import org.matrix.androidsdk.rest.model.Event;
-import org.matrix.androidsdk.rest.model.MatrixError;
-import org.matrix.androidsdk.util.Log;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
@@ -121,7 +124,7 @@ public class ReadMarkerManager implements VectorMessagesAdapter.ReadMarkerListen
 
         if (jumpToFirstUnreadView != null) {
             mJumpToUnreadView = jumpToFirstUnreadView;
-            TextView jumpToUnreadLabel = (TextView) jumpToFirstUnreadView.findViewById(R.id.jump_to_first_unread_label);
+            TextView jumpToUnreadLabel = jumpToFirstUnreadView.findViewById(R.id.jump_to_first_unread_label);
             jumpToUnreadLabel.setPaintFlags(jumpToUnreadLabel.getPaintFlags() | Paint.UNDERLINE_TEXT_FLAG);
             // Actions views
             mCloseJumpToUnreadView = jumpToFirstUnreadView.findViewById(R.id.close_jump_to_first_unread);
@@ -170,7 +173,7 @@ public class ReadMarkerManager implements VectorMessagesAdapter.ReadMarkerListen
      * Called after the activity/fragment resumed
      */
     public void onResume() {
-        ((VectorMessagesAdapter)mVectorMessageListFragment.getMessageAdapter()).setReadMarkerListener(this);
+        ((VectorMessagesAdapter) mVectorMessageListFragment.getMessageAdapter()).setReadMarkerListener(this);
         updateJumpToBanner();
     }
 
@@ -202,8 +205,8 @@ public class ReadMarkerManager implements VectorMessagesAdapter.ReadMarkerListen
         } else if (mVectorMessageListFragment.getEventTimeLine().hasReachedHomeServerForwardsPaginationEnd()) {
             // Display "You've caught up" message if necessary
             final ListView messageListView = mVectorMessageListFragment.getMessageListView();
-            if (messageListView != null && firstVisibleItem + visibleItemCount == totalItemCount &&
-                    messageListView.getChildAt(messageListView.getChildCount() - 1).getBottom() == messageListView.getBottom()) {
+            if (messageListView != null && firstVisibleItem + visibleItemCount == totalItemCount
+                    && messageListView.getChildAt(messageListView.getChildCount() - 1).getBottom() == messageListView.getBottom()) {
                 mActivity.setResult(Activity.RESULT_OK);
                 mActivity.finish();
             }
@@ -213,11 +216,12 @@ public class ReadMarkerManager implements VectorMessagesAdapter.ReadMarkerListen
     /**
      * Called at the end of a scroll action
      *
-     * @param scrollState
+     * @param scrollState the scroll state
      */
     public void onScrollStateChanged(final int scrollState) {
         if (scrollState == AbsListView.OnScrollListener.SCROLL_STATE_IDLE
-                && (mScrollState == AbsListView.OnScrollListener.SCROLL_STATE_FLING || mScrollState == AbsListView.OnScrollListener.SCROLL_STATE_TOUCH_SCROLL)) {
+                && (mScrollState == AbsListView.OnScrollListener.SCROLL_STATE_FLING
+                || mScrollState == AbsListView.OnScrollListener.SCROLL_STATE_TOUCH_SCROLL)) {
             checkUnreadMessage();
         }
 
@@ -325,7 +329,7 @@ public class ReadMarkerManager implements VectorMessagesAdapter.ReadMarkerListen
             final String readReceiptEventId = mRoomSummary.getReadReceiptEventId();
 
             if (!mReadMarkerEventId.equals(readReceiptEventId)) {
-                if (!MXSession.isMessageId(mReadMarkerEventId)) {
+                if (!MXPatterns.isEventId(mReadMarkerEventId)) {
                     // Read marker is invalid, ignore it as it should not occur
                     Log.e(LOG_TAG, "updateJumpToBanner: Read marker event id is invalid, ignore it as it should not occur");
                 } else {
@@ -441,7 +445,7 @@ public class ReadMarkerManager implements VectorMessagesAdapter.ReadMarkerListen
             Log.d(LOG_TAG, "scrollUpToGivenEvent " + event.eventId);
             if (!scrollToAdapterEvent(event)) {
                 // use the cached events list
-                mRoom.getLiveTimeLine().backPaginate(UNREAD_BACK_PAGINATE_EVENT_COUNT, true, new ApiCallback<Integer>() {
+                mRoom.getTimeline().backPaginate(UNREAD_BACK_PAGINATE_EVENT_COUNT, true, new ApiCallback<Integer>() {
                     @Override
                     public void onSuccess(Integer info) {
                         if (!mActivity.isFinishing()) {
@@ -488,9 +492,11 @@ public class ReadMarkerManager implements VectorMessagesAdapter.ReadMarkerListen
             Log.d(LOG_TAG, "scrollToAdapterEvent: need to load more events in adapter or eventId is not displayed");
 
             if (mVectorMessageListFragment.getMessageAdapter().getCount() > 0) {
-                final MessageRow firstRow = mVectorMessageListFragment.getMessageAdapter().getItem(0);
+                final MessageRow firstRow = mVectorMessageListFragment.getMessageAdapter()
+                        .getItem(0);
                 final Event firstEvent = firstRow != null ? firstRow.getEvent() : null;
-                final MessageRow lastRow = mVectorMessageListFragment.getMessageAdapter().getItem(mVectorMessageListFragment.getMessageAdapter().getCount() - 1);
+                final MessageRow lastRow = mVectorMessageListFragment.getMessageAdapter()
+                        .getItem(mVectorMessageListFragment.getMessageAdapter().getCount() - 1);
                 final Event lastEvent = lastRow != null ? lastRow.getEvent() : null;
                 if (firstEvent != null && lastEvent != null && event.getOriginServerTs() > firstEvent.getOriginServerTs()
                         && event.getOriginServerTs() < lastEvent.getOriginServerTs()) {
@@ -558,7 +564,8 @@ public class ReadMarkerManager implements VectorMessagesAdapter.ReadMarkerListen
                     Log.v(LOG_TAG, "setReadMarkerToLastVisibleRow currentReadMarkerEvent:" + currentReadMarkerEvent.eventId
                             + " TS:" + currentReadMarkerTs + " closestEvent:" + closestEvent.eventId + " TS:" + closestEvent.getOriginServerTs());
                     if (newReadMarkerTs > currentReadMarkerTs) {
-                        Log.d(LOG_TAG, "setReadMarkerToLastVisibleRow update read marker to:" + newReadMarkerEvent.eventId + " isMessageId:" + MXSession.isMessageId(newReadMarkerEvent.eventId));
+                        Log.d(LOG_TAG, "setReadMarkerToLastVisibleRow update read marker to:" + newReadMarkerEvent.eventId
+                                + " isEventId:" + MXPatterns.isEventId(newReadMarkerEvent.eventId));
                         mRoom.setReadMakerEventId(newReadMarkerEvent.eventId);
                         onReadMarkerChanged(mRoom.getRoomId());
                     }
@@ -619,7 +626,7 @@ public class ReadMarkerManager implements VectorMessagesAdapter.ReadMarkerListen
                 try {
                     mLastVisibleEvent = mVectorMessageListFragment.getEvent(mVectorMessageListFragment.getMessageListView().getLastVisiblePosition());
                 } catch (Exception e) {
-                    Log.e(LOG_TAG, "## onReadMarkerDisplayed() : crash while retrieving mLastVisibleEvent " + e.getMessage());
+                    Log.e(LOG_TAG, "## onReadMarkerDisplayed() : crash while retrieving mLastVisibleEvent " + e.getMessage(), e);
                 }
             }
 
@@ -629,7 +636,7 @@ public class ReadMarkerManager implements VectorMessagesAdapter.ReadMarkerListen
                 try {
                     mFirstVisibleEvent = mVectorMessageListFragment.getEvent(mVectorMessageListFragment.getMessageListView().getFirstVisiblePosition());
                 } catch (Exception e) {
-                    Log.e(LOG_TAG, "## onReadMarkerDisplayed() : crash while retrieving mFirstVisibleEvent " + e.getMessage());
+                    Log.e(LOG_TAG, "## onReadMarkerDisplayed() : crash while retrieving mFirstVisibleEvent " + e.getMessage(), e);
                 }
             }
 

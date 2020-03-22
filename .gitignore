@@ -11,3 +11,7 @@
 
 .gradle
 /local.properties
+
+/tmp
+
+captures/

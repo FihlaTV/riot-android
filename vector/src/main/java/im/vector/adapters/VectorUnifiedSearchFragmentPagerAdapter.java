@@ -1,6 +1,7 @@
 /*
  * Copyright 2017 OpenMarket Ltd
  * Copyright 2017 Vector Creations Ltd
+ * Copyright 2018 New Vector Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,30 +19,30 @@
 package im.vector.adapters;
 
 import android.content.Context;
-import android.support.v4.app.Fragment;
-import android.support.v4.app.FragmentManager;
-import android.support.v4.app.FragmentPagerAdapter;
-import android.support.v4.util.Pair;
-import android.support.v4.util.SparseArrayCompat;
 import android.text.TextUtils;
 import android.view.ViewGroup;
+
+import androidx.collection.SparseArrayCompat;
+import androidx.core.util.Pair;
+import androidx.fragment.app.Fragment;
+import androidx.fragment.app.FragmentManager;
+import androidx.fragment.app.FragmentPagerAdapter;
 
 import org.matrix.androidsdk.MXSession;
 import org.matrix.androidsdk.fragments.MatrixMessageListFragment;
 
 import im.vector.PublicRoomsManager;
 import im.vector.R;
-import im.vector.activity.CommonActivityUtils;
 import im.vector.fragments.VectorSearchMessagesListFragment;
 import im.vector.fragments.VectorSearchPeopleListFragment;
 import im.vector.fragments.VectorSearchRoomsFilesListFragment;
 import im.vector.fragments.VectorSearchRoomsListFragment;
+import im.vector.util.PermissionsToolsKt;
 
 /**
  * Unified search pager adapter
  */
 public class VectorUnifiedSearchFragmentPagerAdapter extends FragmentPagerAdapter {
-    private static final String LOG_TAG = VectorUnifiedSearchFragmentPagerAdapter.class.getSimpleName();
 
     private final Context mContext;
     private final MXSession mSession;
@@ -99,19 +100,23 @@ public class VectorUnifiedSearchFragmentPagerAdapter extends FragmentPagerAdapte
         if (fragment == null) {
             switch (titleId) {
                 case R.string.tab_title_search_rooms: {
-                    fragment = VectorSearchRoomsListFragment.newInstance(mSession.getMyUserId(), R.layout.fragment_vector_recents_list);
+                    fragment = VectorSearchRoomsListFragment.newInstance(mSession.getMyUserId(),
+                            R.layout.fragment_vector_recents_list);
                     break;
                 }
                 case R.string.tab_title_search_messages: {
-                    fragment = VectorSearchMessagesListFragment.newInstance(mSession.getMyUserId(), mRoomId, org.matrix.androidsdk.R.layout.fragment_matrix_message_list_fragment);
+                    fragment = VectorSearchMessagesListFragment.newInstance(mSession.getMyUserId(),
+                            mRoomId, org.matrix.androidsdk.R.layout.fragment_matrix_message_list_fragment);
                     break;
                 }
                 case R.string.tab_title_search_people: {
-                    fragment = VectorSearchPeopleListFragment.newInstance(mSession.getMyUserId(), R.layout.fragment_vector_search_people_list);
+                    fragment = VectorSearchPeopleListFragment.newInstance(mSession.getMyUserId(),
+                            R.layout.fragment_vector_search_people_list);
                     break;
                 }
                 case R.string.tab_title_search_files: {
-                    fragment = VectorSearchRoomsFilesListFragment.newInstance(mSession.getMyUserId(), mRoomId, org.matrix.androidsdk.R.layout.fragment_matrix_message_list_fragment);
+                    fragment = VectorSearchRoomsFilesListFragment.newInstance(mSession.getMyUserId(),
+                            mRoomId, org.matrix.androidsdk.R.layout.fragment_matrix_message_list_fragment);
                     break;
                 }
             }
@@ -138,7 +143,7 @@ public class VectorUnifiedSearchFragmentPagerAdapter extends FragmentPagerAdapte
     @Override
     public CharSequence getPageTitle(int position) {
         if (null != mFragmentsData && mFragmentsData.get(position) != null) {
-            return mContext.getResources().getString(mFragmentsData.get(position).first);
+            return mContext.getString(mFragmentsData.get(position).first);
         }
 
         return super.getPageTitle(position);
@@ -227,7 +232,7 @@ public class VectorUnifiedSearchFragmentPagerAdapter extends FragmentPagerAdapte
             int titleId = pair == null ? -1 : pair.first;
 
             if (titleId == R.string.tab_title_search_people) {
-                return CommonActivityUtils.REQUEST_CODE_PERMISSION_MEMBERS_SEARCH;
+                return PermissionsToolsKt.PERMISSIONS_FOR_MEMBERS_SEARCH;
             }
         }
 

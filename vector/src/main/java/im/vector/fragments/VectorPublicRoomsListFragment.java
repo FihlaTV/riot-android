@@ -1,7 +1,8 @@
 /*
  * Copyright 2015 OpenMarket Ltd
  * Copyright 2017 Vector Creations Ltd
- * 
+ * Copyright 2018 New Vector Ltd
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
@@ -17,25 +18,29 @@
 
 package im.vector.fragments;
 
-import android.support.v4.app.Fragment;
 import android.os.Bundle;
 import android.text.TextUtils;
-import org.matrix.androidsdk.util.Log;
-import android.view.LayoutInflater;
 import android.view.View;
-import android.view.ViewGroup;
 import android.widget.AbsListView;
 import android.widget.AdapterView;
 import android.widget.ListView;
 import android.widget.Toast;
 
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 import org.matrix.androidsdk.MXSession;
+import org.matrix.androidsdk.core.Log;
+import org.matrix.androidsdk.core.callback.ApiCallback;
+import org.matrix.androidsdk.core.model.MatrixError;
 import org.matrix.androidsdk.data.Room;
 import org.matrix.androidsdk.data.RoomPreviewData;
-import org.matrix.androidsdk.rest.callback.ApiCallback;
-import org.matrix.androidsdk.rest.model.MatrixError;
-import org.matrix.androidsdk.rest.model.PublicRoom;
+import org.matrix.androidsdk.rest.model.publicroom.PublicRoom;
 
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+import butterknife.BindView;
 import im.vector.Matrix;
 import im.vector.PublicRoomsManager;
 import im.vector.R;
@@ -44,11 +49,8 @@ import im.vector.activity.CommonActivityUtils;
 import im.vector.activity.VectorRoomActivity;
 import im.vector.adapters.VectorPublicRoomsAdapter;
 
-import java.util.HashMap;
-import java.util.List;
-
-public class VectorPublicRoomsListFragment extends Fragment {
-    private static final String LOG_TAG = "VectorPubRoomsListFrg";
+public class VectorPublicRoomsListFragment extends VectorBaseFragment {
+    private static final String LOG_TAG = VectorPublicRoomsListFragment.class.getSimpleName();
 
     private static final String ARG_LAYOUT_ID = "VectorPublicRoomsListFragment.ARG_LAYOUT_ID";
     private static final String ARG_MATRIX_ID = "VectorPublicRoomsListFragment.ARG_MATRIX_ID";
@@ -67,21 +69,24 @@ public class VectorPublicRoomsListFragment extends Fragment {
         return f;
     }
 
-    private String mMatrixId;
     private MXSession mSession;
-    private ListView mRecentsListView;
+    @BindView(R.id.fragment_public_rooms_list)
+    ListView mRecentsListView;
     private VectorPublicRoomsAdapter mAdapter;
     private String mPattern;
 
-    private View mInitializationSpinnerView;
-    private View mForwardPaginationView;
+    @BindView(R.id.listView_global_spinner_views)
+    View mInitializationSpinnerView;
+
+    @BindView(R.id.listView_forward_spinner_view)
+    View mForwardPaginationView;
 
     /**
      * Customize the scrolls behaviour.
      * -> scroll over the top triggers a back pagination
      * -> scroll over the bottom triggers a forward pagination
      */
-    protected final AbsListView.OnScrollListener mScrollListener = new AbsListView.OnScrollListener() {
+    private final AbsListView.OnScrollListener mScrollListener = new AbsListView.OnScrollListener() {
         @Override
         public void onScrollStateChanged(AbsListView view, int scrollState) {
             //check only when the user scrolls the content
@@ -105,23 +110,25 @@ public class VectorPublicRoomsListFragment extends Fragment {
     };
 
     @Override
-    public View onCreateView(LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
-        super.onCreateView(inflater, container, savedInstanceState);
+    public int getLayoutResId() {
+        Bundle args = getArguments();
+        return args.getInt(ARG_LAYOUT_ID);
+    }
+
+    @Override
+    public void onViewCreated(@NotNull View view, @Nullable Bundle savedInstanceState) {
+        super.onViewCreated(view, savedInstanceState);
+
         Bundle args = getArguments();
 
-        mMatrixId = args.getString(ARG_MATRIX_ID);
-        mSession = Matrix.getInstance(getActivity()).getSession(mMatrixId);
+        String matrixId = args.getString(ARG_MATRIX_ID);
+        mSession = Matrix.getInstance(getActivity()).getSession(matrixId);
 
         if (null == mSession) {
             throw new RuntimeException("Must have valid default MXSession.");
         }
 
         mPattern = args.getString(ARG_SEARCHED_PATTERN, null);
-
-        View v = inflater.inflate(args.getInt(ARG_LAYOUT_ID), container, false);
-        mRecentsListView = (ListView)v.findViewById(R.id.fragment_public_rooms_list);
-        mInitializationSpinnerView = v.findViewById(R.id.listView_global_spinner_views);
-        mForwardPaginationView = v.findViewById(R.id.listView_forward_spinner_view);
 
         // create the adapter
         mAdapter = new VectorPublicRoomsAdapter(getActivity(), R.layout.adapter_item_vector_recent_room, mSession);
@@ -137,37 +144,40 @@ public class VectorPublicRoomsListFragment extends Fragment {
 
                 // launch corresponding room activity
                 if (null != publicRoom.roomId) {
-                    final RoomPreviewData roomPreviewData = new RoomPreviewData(mSession, publicRoom.roomId, null, publicRoom.getAlias(), null);
+                    final RoomPreviewData roomPreviewData = new RoomPreviewData(mSession, publicRoom.roomId, null, publicRoom.canonicalAlias, null);
 
-                    Room room = mSession.getDataHandler().getRoom(publicRoom.roomId, false);
+                    // Check whether the room exists to handled the cases where the user is invited or he has joined.
+                    // CAUTION: the room may exist whereas the user membership is neither invited nor joined.
+                    final Room room = mSession.getDataHandler().getRoom(publicRoom.roomId, false);
+                    if (null != room && room.isInvited()) {
+                        Log.d(LOG_TAG, "manageRoom : the user is invited -> display the preview " + VectorApp.getCurrentActivity());
+                        CommonActivityUtils.previewRoom(getActivity(), roomPreviewData);
+                    } else if (null != room && room.isJoined()) {
+                        Log.d(LOG_TAG, "manageRoom : the user joined the room -> open the room");
+                        final Map<String, Object> params = new HashMap<>();
+                        params.put(VectorRoomActivity.EXTRA_MATRIX_ID, mSession.getMyUserId());
+                        params.put(VectorRoomActivity.EXTRA_ROOM_ID, publicRoom.roomId);
 
-                    // if the room exists
-                    if (null != room) {
-                        // either the user is invited
-                        if (room.isInvited()) {
-                            Log.d(LOG_TAG, "manageRoom : the user is invited -> display the preview " + VectorApp.getCurrentActivity());
-                            CommonActivityUtils.previewRoom(getActivity(), roomPreviewData);
-                        } else {
-                            Log.d(LOG_TAG, "manageRoom : open the room");
-                            HashMap<String, Object> params = new HashMap<>();
-                            params.put(VectorRoomActivity.EXTRA_MATRIX_ID, mSession.getMyUserId());
-                            params.put(VectorRoomActivity.EXTRA_ROOM_ID, publicRoom.roomId);
-
-                            if (!TextUtils.isEmpty(publicRoom.name)) {
-                                params.put(VectorRoomActivity.EXTRA_DEFAULT_NAME, publicRoom.name);
-                            }
-
-                            if (!TextUtils.isEmpty(publicRoom.topic)) {
-                                params.put(VectorRoomActivity.EXTRA_DEFAULT_TOPIC, publicRoom.topic);
-                            }
-
-                            CommonActivityUtils.goToRoomPage(getActivity(), mSession, params);
+                        if (!TextUtils.isEmpty(publicRoom.name)) {
+                            params.put(VectorRoomActivity.EXTRA_DEFAULT_NAME, publicRoom.name);
                         }
+
+                        if (!TextUtils.isEmpty(publicRoom.topic)) {
+                            params.put(VectorRoomActivity.EXTRA_DEFAULT_TOPIC, publicRoom.topic);
+                        }
+
+                        CommonActivityUtils.goToRoomPage(getActivity(), mSession, params);
                     } else {
+                        // Display a preview by default.
+                        Log.d(LOG_TAG, "manageRoom : display the preview");
                         mInitializationSpinnerView.setVisibility(View.VISIBLE);
 
                         roomPreviewData.fetchPreviewData(new ApiCallback<Void>() {
                             private void onDone() {
+                                if (!isAdded()) {
+                                    return;
+                                }
+
                                 mInitializationSpinnerView.setVisibility(View.GONE);
                                 CommonActivityUtils.previewRoom(getActivity(), roomPreviewData);
                             }
@@ -178,7 +188,11 @@ public class VectorPublicRoomsListFragment extends Fragment {
                             }
 
                             private void onError() {
-                                roomPreviewData.setRoomState(publicRoom);
+                                if (!isAdded()) {
+                                    return;
+                                }
+
+                                roomPreviewData.setPublicRoom(publicRoom);
                                 roomPreviewData.setRoomName(publicRoom.name);
                                 onDone();
                             }
@@ -202,8 +216,6 @@ public class VectorPublicRoomsListFragment extends Fragment {
                 }
             }
         });
-
-        return v;
     }
 
     @Override
@@ -226,7 +238,7 @@ public class VectorPublicRoomsListFragment extends Fragment {
                 private void onError(String message) {
                     if (null != getActivity()) {
                         Log.e(LOG_TAG, "## startPublicRoomsSearch() failed " + message);
-                        Toast.makeText(getActivity(),message, Toast.LENGTH_SHORT).show();
+                        Toast.makeText(getActivity(), message, Toast.LENGTH_SHORT).show();
                         mInitializationSpinnerView.setVisibility(View.GONE);
                     }
                 }
@@ -270,7 +282,7 @@ public class VectorPublicRoomsListFragment extends Fragment {
             private void onError(String message) {
                 if (null != getActivity()) {
                     Log.e(LOG_TAG, "## forwardPaginate() failed " + message);
-                    Toast.makeText(getActivity(),message, Toast.LENGTH_SHORT).show();
+                    Toast.makeText(getActivity(), message, Toast.LENGTH_SHORT).show();
                     mForwardPaginationView.setVisibility(View.GONE);
                 }
             }

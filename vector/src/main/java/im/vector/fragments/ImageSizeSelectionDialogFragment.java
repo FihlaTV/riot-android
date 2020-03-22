@@ -1,5 +1,6 @@
 /*
  * Copyright 2015 OpenMarket Ltd
+ * Copyright 2018 New Vector Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,25 +19,26 @@ package im.vector.fragments;
 
 import android.app.Dialog;
 import android.os.Bundle;
-import android.support.v4.app.DialogFragment;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.AdapterView;
 import android.widget.ListView;
 
+import androidx.fragment.app.DialogFragment;
+
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.List;
+
 import im.vector.R;
 import im.vector.adapters.ImageCompressionDescription;
 import im.vector.adapters.ImageSizesAdapter;
 
-import java.util.ArrayList;
-import java.util.Collection;
-
 /**
  * A dialog fragment showing a list of image selections string
  */
-public class ImageSizeSelectionDialogFragment  extends DialogFragment {
-    private static final String LOG_TAG = "ImageSizeSelectionDialogFragment";
+public class ImageSizeSelectionDialogFragment extends DialogFragment {
 
     private static final String SELECTIONS_LIST = "SELECTIONS_LIST";
 
@@ -45,19 +47,17 @@ public class ImageSizeSelectionDialogFragment  extends DialogFragment {
     }
 
     public static ImageSizeSelectionDialogFragment newInstance(Collection<ImageCompressionDescription> entries) {
-        ImageSizeSelectionDialogFragment f= new ImageSizeSelectionDialogFragment();
+        ImageSizeSelectionDialogFragment f = new ImageSizeSelectionDialogFragment();
         Bundle args = new Bundle();
         f.setArguments(args);
         f.setEntries(entries);
         return f;
     }
 
-    private ListView mListView;
-    private ImageSizesAdapter mAdapter;
-    private ArrayList<ImageCompressionDescription> mEntries = null;
+    private List<ImageCompressionDescription> mEntries = null;
     private ImageSizeListener mListener = null;
 
-    public void setEntries(Collection<ImageCompressionDescription> entries) {
+    private void setEntries(Collection<ImageCompressionDescription> entries) {
         mEntries = new ArrayList<>(entries);
     }
 
@@ -66,17 +66,12 @@ public class ImageSizeSelectionDialogFragment  extends DialogFragment {
     }
 
     @Override
-    public void onCreate(Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
-    }
-
-    @Override
     public void onSaveInstanceState(Bundle savedInstanceState) {
         // Always call the superclass so it can save the view hierarchy state
         super.onSaveInstanceState(savedInstanceState);
 
         if (null != mEntries) {
-            savedInstanceState.putSerializable(SELECTIONS_LIST, mEntries);
+            savedInstanceState.putSerializable(SELECTIONS_LIST, (ArrayList) mEntries);
         }
     }
 
@@ -86,7 +81,7 @@ public class ImageSizeSelectionDialogFragment  extends DialogFragment {
 
         if (null != savedInstanceState) {
             if (savedInstanceState.containsKey(SELECTIONS_LIST)) {
-                mEntries = (ArrayList<ImageCompressionDescription>)savedInstanceState.getSerializable(SELECTIONS_LIST);
+                mEntries = (ArrayList<ImageCompressionDescription>) savedInstanceState.getSerializable(SELECTIONS_LIST);
             }
         }
 
@@ -95,20 +90,19 @@ public class ImageSizeSelectionDialogFragment  extends DialogFragment {
     }
 
     @Override
-    public View onCreateView(LayoutInflater inflater, ViewGroup container,
-                             Bundle savedInstanceState) {
+    public View onCreateView(LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
         super.onCreateView(inflater, container, savedInstanceState);
-        View v = inflater.inflate(R.layout.fragment_dialog_accounts_list, container, false);
-        mListView = ((ListView)v.findViewById(R.id.listView_accounts));
+        View v = inflater.inflate(R.layout.dialog_base_list_view, container, false);
+        ListView listView = v.findViewById(R.id.list_view);
 
-        mAdapter = new ImageSizesAdapter(getActivity(), R.layout.adapter_item_image_size);
+        ImageSizesAdapter adapter = new ImageSizesAdapter(getActivity(), R.layout.adapter_item_image_size);
 
         if (null != mEntries) {
-            mAdapter.addAll(mEntries);
+            adapter.addAll(mEntries);
         }
-        mListView.setAdapter(mAdapter);
 
-        mListView.setOnItemClickListener(new AdapterView.OnItemClickListener() {
+        listView.setAdapter(adapter);
+        listView.setOnItemClickListener(new AdapterView.OnItemClickListener() {
             @Override
             public void onItemClick(AdapterView<?> parent, View view, int position, long id) {
 
@@ -117,7 +111,7 @@ public class ImageSizeSelectionDialogFragment  extends DialogFragment {
                 }
 
                 // dismiss the list
-                ImageSizeSelectionDialogFragment.this.dismiss();
+                dismiss();
             }
         });
 

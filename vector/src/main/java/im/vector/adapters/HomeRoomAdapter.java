@@ -1,5 +1,6 @@
 /*
  * Copyright 2017 Vector Creations Ltd
+ * Copyright 2018 New Vector Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,12 +18,13 @@
 package im.vector.adapters;
 
 import android.content.Context;
-import android.support.annotation.CallSuper;
-import android.support.annotation.LayoutRes;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Filter;
+
+import androidx.annotation.CallSuper;
+import androidx.annotation.LayoutRes;
 
 import org.matrix.androidsdk.data.Room;
 
@@ -30,11 +32,10 @@ import java.util.ArrayList;
 import java.util.List;
 
 import im.vector.R;
+import im.vector.adapters.model.NotificationCounter;
 import im.vector.util.RoomUtils;
 
 public class HomeRoomAdapter extends AbsFilterableAdapter<RoomViewHolder> {
-    private static final String LOG_TAG = HomeRoomAdapter.class.getSimpleName();
-
     private final int mLayoutRes;
     private final List<Room> mRooms;
     private final List<Room> mFilteredRooms;
@@ -48,8 +49,11 @@ public class HomeRoomAdapter extends AbsFilterableAdapter<RoomViewHolder> {
      * *********************************************************************************************
      */
 
-    public HomeRoomAdapter(final Context context, @LayoutRes final int layoutRes, final OnSelectRoomListener listener,
-                           final AbsAdapter.InvitationListener invitationListener, final AbsAdapter.MoreRoomActionListener moreActionListener) {
+    public HomeRoomAdapter(final Context context,
+                           @LayoutRes final int layoutRes,
+                           final OnSelectRoomListener listener,
+                           final AbsAdapter.RoomInvitationListener invitationListener,
+                           final AbsAdapter.MoreRoomActionListener moreActionListener) {
         super(context, invitationListener, moreActionListener);
 
         mRooms = new ArrayList<>();
@@ -70,30 +74,33 @@ public class HomeRoomAdapter extends AbsFilterableAdapter<RoomViewHolder> {
     public RoomViewHolder onCreateViewHolder(ViewGroup viewGroup, int viewType) {
         final LayoutInflater layoutInflater = LayoutInflater.from(viewGroup.getContext());
         final View view = layoutInflater.inflate(mLayoutRes, viewGroup, false);
-        return mLayoutRes == R.layout.adapter_item_room_invite ? new InvitationViewHolder(view) : new RoomViewHolder(view);
+        return mLayoutRes == R.layout.adapter_item_room_invite ? new RoomInvitationViewHolder(view) : new RoomViewHolder(view);
     }
 
     @Override
     public void onBindViewHolder(final RoomViewHolder viewHolder, int position) {
-        final Room room = mFilteredRooms.get(position);
-        if (mLayoutRes == R.layout.adapter_item_room_invite) {
-            final InvitationViewHolder invitationViewHolder = (InvitationViewHolder) viewHolder;
-            invitationViewHolder.populateViews(mContext, mSession, room, mInvitationListener, mMoreActionListener);
-        } else {
-            viewHolder.populateViews(mContext, mSession, room, mSession.getDirectChatRoomIdsList().contains(room.getRoomId()), false, mMoreActionListener);
-            viewHolder.itemView.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    mListener.onSelectRoom(room, viewHolder.getAdapterPosition());
-                }
-            });
-            viewHolder.itemView.setOnLongClickListener(new View.OnLongClickListener() {
-                @Override
-                public boolean onLongClick(View v) {
-                    mListener.onLongClickRoom(v, room, viewHolder.getAdapterPosition());
-                    return true;
-                }
-            });
+        // reported by a rage shake
+        if (position < mFilteredRooms.size()) {
+            final Room room = mFilteredRooms.get(position);
+            if (mLayoutRes == R.layout.adapter_item_room_invite) {
+                final RoomInvitationViewHolder invitationViewHolder = (RoomInvitationViewHolder) viewHolder;
+                invitationViewHolder.populateViews(mContext, mSession, room, mRoomInvitationListener, mMoreActionListener);
+            } else {
+                viewHolder.populateViews(mContext, mSession, room, room.isDirect(), false, mMoreActionListener);
+                viewHolder.itemView.setOnClickListener(new View.OnClickListener() {
+                    @Override
+                    public void onClick(View v) {
+                        mListener.onSelectRoom(room, viewHolder.getAdapterPosition());
+                    }
+                });
+                viewHolder.itemView.setOnLongClickListener(new View.OnLongClickListener() {
+                    @Override
+                    public boolean onLongClick(View v) {
+                        mListener.onLongClickRoom(v, room, viewHolder.getAdapterPosition());
+                        return true;
+                    }
+                });
+            }
         }
     }
 
@@ -179,23 +186,27 @@ public class HomeRoomAdapter extends AbsFilterableAdapter<RoomViewHolder> {
     }
 
     /**
-     * Return the sum of notifications for all the displayed rooms
+     * Return the sum of highlight and notifications for all the displayed rooms
      *
      * @return badge value
      */
-    public int getBadgeCount() {
-        int badgeCount = 0;
+    public NotificationCounter getBadgeCount() {
+        NotificationCounter notificationCounter = new NotificationCounter();
+
         for (Room room : mFilteredRooms) {
+            notificationCounter.addHighlights(room.getHighlightCount());
+
             // sanity checks : reported by GA
-            if (null != room.getDataHandler() && (null != room.getDataHandler().getBingRulesManager())) {
-                if (room.getDataHandler().getBingRulesManager().isRoomMentionOnly(room.getRoomId())) {
-                    badgeCount += room.getHighlightCount();
-                } else {
-                    badgeCount += room.getNotificationCount();
-                }
+            if (null != room.getDataHandler()
+                    && (null != room.getDataHandler().getBingRulesManager())
+                    && room.getDataHandler().getBingRulesManager().isRoomMentionOnly(room.getRoomId())) {
+                notificationCounter.addNotifications(room.getHighlightCount());
+            } else {
+                notificationCounter.addNotifications(room.getNotificationCount());
             }
         }
-        return badgeCount;
+
+        return notificationCounter;
     }
 
     /*
@@ -211,7 +222,7 @@ public class HomeRoomAdapter extends AbsFilterableAdapter<RoomViewHolder> {
      */
     private void filterRooms(CharSequence constraint) {
         mFilteredRooms.clear();
-        mFilteredRooms.addAll(RoomUtils.getFilteredRooms(mContext, mSession, mRooms, constraint));
+        mFilteredRooms.addAll(RoomUtils.getFilteredRooms(mContext, mRooms, constraint));
     }
 
     /*

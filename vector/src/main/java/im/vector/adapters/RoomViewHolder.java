@@ -1,5 +1,6 @@
 /*
  * Copyright 2017 Vector Creations Ltd
+ * Copyright 2018 New Vector Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,28 +20,31 @@ package im.vector.adapters;
 import android.content.Context;
 import android.graphics.Color;
 import android.graphics.Typeface;
-import android.graphics.drawable.GradientDrawable;
-import android.support.annotation.Nullable;
-import android.support.v4.content.ContextCompat;
-import android.support.v7.widget.RecyclerView;
 import android.view.View;
 import android.widget.ImageView;
 import android.widget.TextView;
 
+import androidx.annotation.Nullable;
+import androidx.core.content.ContextCompat;
+import androidx.recyclerview.widget.RecyclerView;
+
 import org.matrix.androidsdk.MXSession;
+import org.matrix.androidsdk.core.Log;
+import org.matrix.androidsdk.core.MXPatterns;
 import org.matrix.androidsdk.data.Room;
 import org.matrix.androidsdk.data.RoomSummary;
 import org.matrix.androidsdk.data.store.IMXStore;
-import org.matrix.androidsdk.util.Log;
 
 import butterknife.BindView;
 import butterknife.ButterKnife;
 import im.vector.R;
+import im.vector.ui.themes.ThemeUtils;
 import im.vector.util.RoomUtils;
 import im.vector.util.VectorUtils;
+import im.vector.util.ViewUtilKt;
 
 public class RoomViewHolder extends RecyclerView.ViewHolder {
-    private static final String LOG_TAG = PeopleAdapter.class.getSimpleName();
+    private static final String LOG_TAG = RoomViewHolder.class.getSimpleName();
 
     @BindView(R.id.room_avatar)
     ImageView vRoomAvatar;
@@ -96,8 +100,11 @@ public class RoomViewHolder extends RecyclerView.ViewHolder {
      * @param isInvitation           true when the room is an invitation one
      * @param moreRoomActionListener
      */
-    public void populateViews(final Context context, final MXSession session, final Room room,
-                              final boolean isDirectChat, final boolean isInvitation,
+    public void populateViews(final Context context,
+                              final MXSession session,
+                              final Room room,
+                              final boolean isDirectChat,
+                              final boolean isInvitation,
                               final AbsAdapter.MoreRoomActionListener moreRoomActionListener) {
         // sanity check
         if (null == room) {
@@ -133,11 +140,6 @@ public class RoomViewHolder extends RecyclerView.ViewHolder {
         int highlightCount;
         int notificationCount;
 
-        // Setup colors
-        int mFuchsiaColor = ContextCompat.getColor(context, R.color.vector_fuchsia_color);
-        int mGreenColor = ContextCompat.getColor(context, R.color.vector_green_color);
-        int mSilverColor = ContextCompat.getColor(context, R.color.vector_silver_color);
-
         highlightCount = roomSummary.getHighlightCount();
         notificationCount = roomSummary.getNotificationCount();
 
@@ -147,12 +149,13 @@ public class RoomViewHolder extends RecyclerView.ViewHolder {
         }
 
         int bingUnreadColor;
+
         if (isInvitation || (0 != highlightCount)) {
-            bingUnreadColor = mFuchsiaColor;
+            bingUnreadColor = ContextCompat.getColor(context, R.color.vector_fuchsia_color);
         } else if (0 != notificationCount) {
-            bingUnreadColor = mGreenColor;
+            bingUnreadColor = ThemeUtils.INSTANCE.getColor(context, R.attr.vctr_notice_secondary);
         } else if (0 != unreadMsgCount) {
-            bingUnreadColor = mSilverColor;
+            bingUnreadColor = ThemeUtils.INSTANCE.getColor(context, R.attr.vctr_unread_room_indent_color);
         } else {
             bingUnreadColor = Color.TRANSPARENT;
         }
@@ -160,20 +163,16 @@ public class RoomViewHolder extends RecyclerView.ViewHolder {
         if (isInvitation || (notificationCount > 0)) {
             vRoomUnreadCount.setText(isInvitation ? "!" : RoomUtils.formatUnreadMessagesCounter(notificationCount));
             vRoomUnreadCount.setTypeface(null, Typeface.BOLD);
-            GradientDrawable shape = new GradientDrawable();
-            shape.setShape(GradientDrawable.RECTANGLE);
-            shape.setCornerRadius(100);
-            shape.setColor(bingUnreadColor);
-            vRoomUnreadCount.setBackground(shape);
+            ViewUtilKt.setRoundBackground(vRoomUnreadCount, bingUnreadColor);
             vRoomUnreadCount.setVisibility(View.VISIBLE);
         } else {
             vRoomUnreadCount.setVisibility(View.GONE);
         }
 
-        String roomName = VectorUtils.getRoomDisplayName(context, session, room);
+        String roomName = room.getRoomDisplayName(context);
         if (vRoomNameServer != null) {
             // This view holder is for the home page, we have up to two lines to display the name
-            if (MXSession.isRoomAlias(roomName)) {
+            if (MXPatterns.isRoomAlias(roomName)) {
                 // Room alias, split to display the server name on second line
                 final String[] roomAliasSplitted = roomName.split(":");
                 final String firstLine = roomAliasSplitted[0] + ":";

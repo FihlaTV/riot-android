@@ -1,5 +1,6 @@
 /*
  * Copyright 2017 Vector Creations Ltd
+ * Copyright 2018 New Vector Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,9 +18,10 @@
 package im.vector.adapters;
 
 import android.content.Context;
-import android.support.v7.widget.RecyclerView;
 import android.widget.Filter;
 import android.widget.Filterable;
+
+import androidx.recyclerview.widget.RecyclerView;
 
 import org.matrix.androidsdk.MXSession;
 
@@ -32,27 +34,48 @@ import im.vector.Matrix;
  */
 public abstract class AbsFilterableAdapter<T extends RecyclerView.ViewHolder> extends RecyclerView.Adapter<T> implements Filterable {
 
-    protected final Context mContext;
-    protected final MXSession mSession;
+    final Context mContext;
+    final MXSession mSession;
 
-    protected CharSequence mCurrentFilterPattern;
-    protected Filter mFilter;
+    CharSequence mCurrentFilterPattern;
+    private final Filter mFilter;
 
-    protected final AbsAdapter.InvitationListener mInvitationListener;
-    protected final AbsAdapter.MoreRoomActionListener mMoreActionListener;
-
+    AbsAdapter.RoomInvitationListener mRoomInvitationListener;
+    AbsAdapter.GroupInvitationListener mGroupInvitationListener;
+    AbsAdapter.MoreRoomActionListener mMoreRoomActionListener;
+    AbsAdapter.MoreGroupActionListener mMoreGroupActionListener;
     /*
      * *********************************************************************************************
      * Constructor
      * *********************************************************************************************
      */
 
-    public AbsFilterableAdapter(final Context context, final AbsAdapter.InvitationListener invitationListener,
-                                final AbsAdapter.MoreRoomActionListener moreActionListener) {
+    AbsFilterableAdapter(final Context context) {
         mContext = context;
 
-        mInvitationListener = invitationListener;
-        mMoreActionListener = moreActionListener;
+        mSession = Matrix.getInstance(context).getDefaultSession();
+        mFilter = createFilter();
+    }
+
+    AbsFilterableAdapter(final Context context,
+                         final AbsAdapter.RoomInvitationListener invitationListener,
+                         final AbsAdapter.MoreRoomActionListener moreActionListener) {
+        mContext = context;
+
+        mRoomInvitationListener = invitationListener;
+        mMoreRoomActionListener = moreActionListener;
+
+        mSession = Matrix.getInstance(context).getDefaultSession();
+        mFilter = createFilter();
+    }
+
+    AbsFilterableAdapter(final Context context,
+                         final AbsAdapter.GroupInvitationListener invitationListener,
+                         final AbsAdapter.MoreGroupActionListener moreActionListener) {
+        mContext = context;
+
+        mGroupInvitationListener = invitationListener;
+        mMoreGroupActionListener = moreActionListener;
 
         mSession = Matrix.getInstance(context).getDefaultSession();
         mFilter = createFilter();

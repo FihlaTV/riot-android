@@ -20,13 +20,14 @@ import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Rect;
 import android.graphics.drawable.Drawable;
-import android.support.v4.content.ContextCompat;
-import android.support.v7.widget.DividerItemDecoration;
-import android.support.v7.widget.RecyclerView;
 import android.view.View;
 
+import androidx.core.content.ContextCompat;
+import androidx.recyclerview.widget.DividerItemDecoration;
+import androidx.recyclerview.widget.RecyclerView;
+
 import im.vector.R;
-import im.vector.util.ThemeUtils;
+import im.vector.ui.themes.ThemeUtils;
 
 public class SimpleDividerItemDecoration extends DividerItemDecoration {
     private final Drawable mDivider;
@@ -38,7 +39,7 @@ public class SimpleDividerItemDecoration extends DividerItemDecoration {
 
     public SimpleDividerItemDecoration(final Context context, final int orientation, final int leftMargin) {
         super(context, orientation);
-        mDivider = ContextCompat.getDrawable(context, ThemeUtils.getResourceId(context, R.drawable.line_divider_light));
+        mDivider = ContextCompat.getDrawable(context, ThemeUtils.INSTANCE.getResourceId(context, R.drawable.line_divider_dark));
         mLeftMargin = leftMargin;
         mOrientation = orientation;
     }
